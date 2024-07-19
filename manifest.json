@@ -1,0 +1,23 @@
+{
+  "name": "GeckoView",
+  "description": "This extension will add basic info from CoinGecko to a Trandinview chart page. ",
+  "version": "1.0",
+  "manifest_version": 3,
+  "permissions": ["activeTab", "storage", "https://api.coingecko.com/"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.tradingview.com/chart/*"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      
+    }
+  }
+}

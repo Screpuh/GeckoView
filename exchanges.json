@@ -1,0 +1,16 @@
+{
+    "binance": "Bitcoin / ThetherUs",
+    "binance us": "Bitcoin / ThetherUs",
+    "bitfinex": "Bitcoin / DOLLAR",
+    "bitstamp": "Bitcoin / DOLLAR",
+    "bybit": "ULTIUSDT SPOT",
+    "coinbase":	"Bitcoin / THETER",
+    "cryptocom": "BITCOIN/THETER",
+    "gate.io": "BITCOIN/THETER",
+    "gemini": "BITCOIN / U.S. DOLLAR",
+    "kraken": "BITCOIN / THETER USD",
+    "kucoin": "MANTRA DAO / Thether (how to handle this?)",
+    "mexc":	"BITCOIN / USDT",
+    "okx": "Bitcoin/THETER",
+    "poloniex":	"BITCOIN / THETER USD"
+}
