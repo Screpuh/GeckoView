@@ -288,7 +288,7 @@ function buildHtmlResponse(data) {
                         
                         <div class="item-cXDWtdxq">
                             <div class="title-cXDWtdxq">
-                                <span>24h Total Vol</span>
+                                <span>24h Total Volume</span>
                             </div>
                             <span class="data-cXDWtdxq">‪${CFORMAT_USD.format(data.market_data.total_volume.usd)}‬</span>
                         </div>
@@ -302,7 +302,7 @@ function buildHtmlResponse(data) {
                         
                         <div class="item-cXDWtdxq">
                             <div class="title-cXDWtdxq">
-                                <span>Circulatin supply</span>
+                                <span>Circulating supply</span>
                             </div>
                             <span class="data-cXDWtdxq">‪${CFORMAT_NR.format(data.market_data.circulating_supply)} (${calculatePercentageOfTotal(data.market_data.circulating_supply, data.market_data.total_supply)}%)‬</span>
                         </div>

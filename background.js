@@ -1,4 +1,4 @@
-// this file can run API calls to coingecko when triggerd by the content script
+// this file can run API calls to coingecko when triggered by the content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === 'fetchCoinData') {
 
@@ -70,7 +70,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // check which exchange to see what format the trading pair is in and return the coin in a format that coingecko can understand
 function formatTradingPair(pair, exchange) {
-    if (['binance', 'binance us', 'bitfinex', 'bitstamp', 'coinbase', 'gemeni', 'kraken', 'mexc', 'poloniex', 'kucoin'].includes(exchange)) {
+    if (['binance', 'binance us', 'bitfinex', 'bitstamp', 'coinbase', 'gemini', 'kraken', 'mexc', 'poloniex', 'kucoin'].includes(exchange)) {
         let parts = pair.split(' / ');
         let coin = parts[0].toLowerCase();
 
