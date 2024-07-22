@@ -13,7 +13,7 @@ Welcome to **GeckoView**! GeckoView is a Chrome extension designed to seamlessly
 
 ## Installation
 
-1. Clone the repository or download the ZIP file.
+1. Clone the repository.
 2. Open Chrome and navigate to `chrome://extensions/`.
 3. Enable "Developer mode" by toggling the switch on the top right corner.
 4. Click on "Load unpacked" and select the directory where you cloned/downloaded GeckoView.
