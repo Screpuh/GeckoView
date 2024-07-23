@@ -11,6 +11,10 @@ Welcome to **GeckoView**! GeckoView is a Chrome extension designed to seamlessly
 - **Quick Navigation**: Direct link to CoinGecko's page for the selected coin for more in-depth information.
 - **User-Friendly Interface**: Simple and intuitive design that integrates smoothly with TradingView, providing a seamless user experience.
 
+## Download
+
+Download the extension from the Chrome Web Store: `https://chromewebstore.google.com/detail/geckoview/dmagkjegljnkbpkmljpmaenihpnadkgc`.
+
 ## Installation
 
 1. Clone the repository.
