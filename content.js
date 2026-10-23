@@ -45,11 +45,25 @@ window.onload = function() {
         // Attached once, here, rather than re-attached on every re-render: newDiv itself is never
         // replaced (only its innerHTML is, on every updateCryptoContent()/renderTab() call), so a
         // listener on it survives those re-renders. Event delegation handles clicks on the tab
-        // buttons that don't exist yet at the time this listener is attached.
+        // buttons/exchange rows that don't exist yet at the time this listener is attached.
         newDiv.addEventListener('click', event => {
             const tabButton = event.target.closest('[data-gv-tab]');
             if (tabButton) {
                 renderTab(tabButton.dataset.gvTab);
+                return;
+            }
+
+            const exchangeLink = event.target.closest('.gv-exchange-item[data-gv-base]');
+            // Only take over a plain left-click; a modified click (open in new tab/window, etc.)
+            // falls through to the native <a href> behavior untouched.
+            if (exchangeLink && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
+                event.preventDefault();
+                openExchangeTickerLink(
+                    exchangeLink.dataset.gvExchangeName,
+                    exchangeLink.dataset.gvBase,
+                    exchangeLink.dataset.gvTarget,
+                    exchangeLink.getAttribute('href')
+                );
             }
         });
 
@@ -121,6 +135,49 @@ function setupAdBlockerPopupAutoClose() {
     observer.observe(document.body, { childList: true, subtree: true });
 
     tryCloseAdBlockerDialog(); // in case it's already open by the time this runs
+}
+
+// Clicking an Exchanges-tab row ideally jumps straight to that exact pair on TradingView's own
+// chart (e.g. "COINBASE:BTCUSD"), not out to the exchange's own website. There's no official way
+// to do this: TradingView doesn't expose a documented API for "resolve this base/target/exchange
+// to a TradingView symbol", so this calls symbol-search.tradingview.com/symbol_search/v3/ - an
+// undocumented endpoint found by watching TradingView's own search box make network requests, not
+// a published API. It could change or disappear without notice. That's acceptable here only
+// because failure is harmless: any error (network, no match, endpoint gone) falls back to
+// `fallbackUrl` (the ticker's own trade_url, i.e. exactly today's behavior), opened the same way
+// the native link click would have.
+function openExchangeTickerLink(exchangeName, base, target, fallbackUrl) {
+    const openFallback = () => {
+        if (fallbackUrl) {
+            window.open(fallbackUrl, '_blank', 'noopener');
+        }
+    };
+
+    if (!isExtensionContextValid()) {
+        // Not actually extension-context-dependent (no chrome.* call below), but if the context
+        // is already gone the rest of the widget is about to show its "refresh the page" state
+        // anyway, so there's no reason to attempt this.
+        openFallback();
+        return;
+    }
+
+    const query = `${normalizeTickerSymbol(base)}${normalizeTickerSymbol(target)}`;
+    if (!query) {
+        openFallback();
+        return;
+    }
+
+    fetch(`https://symbol-search.tradingview.com/symbol_search/v3/?text=${encodeURIComponent(query)}&hl=1&lang=en&domain=production`)
+        .then(response => response.ok ? response.json() : Promise.reject(new Error('symbol search failed')))
+        .then(data => {
+            const tvSymbol = findTradingViewSymbolMatch(data.symbols, exchangeName, base, target);
+            if (tvSymbol) {
+                window.location.href = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tvSymbol)}`;
+            } else {
+                openFallback();
+            }
+        })
+        .catch(openFallback);
 }
 
 // Chrome tears down a content script's connection to the extension when the extension is

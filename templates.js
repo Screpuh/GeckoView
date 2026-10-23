@@ -522,8 +522,11 @@ function buildExchangesTabContent(tickers) {
                 <span class="gv-exchange-item__title">${escapeHtml(title)}</span>
                 <span class="gv-exchange-item__meta">${escapeHtml(meta)}</span>`;
 
+        // data-gv-* carry what content.js needs to try resolving this straight to the matching
+        // chart on TradingView itself on click (see openExchangeTickerLink() there), falling back
+        // to this href (the exchange's own page) if that resolution fails for any reason.
         return ticker.trade_url
-            ? `<a class="gv-exchange-item" href="${escapeHtml(ticker.trade_url)}" target="_blank">${content}</a>`
+            ? `<a class="gv-exchange-item" href="${escapeHtml(ticker.trade_url)}" target="_blank" data-gv-exchange-name="${escapeHtml(market.name)}" data-gv-base="${escapeHtml(ticker.base)}" data-gv-target="${escapeHtml(ticker.target)}">${content}</a>`
             : `<div class="gv-exchange-item">${content}</div>`;
     }).join('');
 

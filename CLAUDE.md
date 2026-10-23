@@ -280,6 +280,31 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
     `requiresPro` gate; it uses the same `getCoinGeckoBaseUrl`/
     `buildCoinGeckoFetchOptions(settings.apiKey, settings.apiKeyType)` split
     as the main coin fetch, not a hardcoded Pro host.
+  - **Exchange rows link to the matching TradingView chart, not the
+    exchange's own site, when that can be resolved.**
+    `openExchangeTickerLink()` in `content.js` calls
+    `https://symbol-search.tradingview.com/symbol_search/v3/` with the
+    ticker's base+target and tries to match a result to the ticker's
+    exchange via `findTradingViewSymbolMatch()` (`utils.js`). **This is an
+    undocumented TradingView endpoint** — found by watching TradingView's
+    own symbol search box make network requests, not a published API, so
+    it could change or disappear without notice; that's acceptable only
+    because failure is harmless (see below). It's necessary because
+    CoinGecko and TradingView maintain independent exchange-identifier
+    namespaces that frequently disagree even for major exchanges —
+    confirmed live: CoinGecko's `gdax`/`bybit_spot`/`okex`/`mxc` are
+    TradingView's `COINBASE`/`BYBIT`/`OKX`/`MEXC` — so the match is on the
+    *display* name (fuzzy, via `normalizeExchangeName`), never on
+    CoinGecko's identifier slug. Kraken's CoinGecko ticker also uses `XBT`
+    for Bitcoin, which the search endpoint doesn't resolve at all, so
+    `normalizeTickerSymbol()` maps that one confirmed case to `BTC` before
+    searching. On any failure (network error, no match, endpoint
+    changed/gone) this falls back to the ticker's own `trade_url` — exactly
+    today's behavior — opened the same way the native link click would
+    have, so the feature can only ever degrade to "nothing changed," never
+    break the row. A plain left-click is intercepted
+    (`event.preventDefault()`); a modified click (new tab/window, etc.) is
+    deliberately left alone to fall through to the native `<a href>`.
   - **News/Insights** (https://docs.coingecko.com/reference/news,
     https://docs.coingecko.com/reference/insights) **require a paid
     CoinGecko plan** (Analyst/Lite/Pro/Enterprise — not Demo, not keyless)

@@ -88,7 +88,73 @@ function isAdBlockerDialogText(text) {
     return /ad blocker/i.test(text || '');
 }
 
+// CoinGecko's ticker `base`/`target` fields don't always match TradingView's own ticker symbols
+// for the same asset - confirmed live that Kraken's CoinGecko ticker uses "XBT" for Bitcoin, but
+// searching TradingView for "XBT..." finds nothing, while "BTC..." finds it. Only this one
+// confirmed case is handled; add more here if another mismatch like it turns up.
+function normalizeTickerSymbol(symbol) {
+    const upper = (symbol || '').toUpperCase();
+    return upper === 'XBT' ? 'BTC' : upper;
+}
+
+// Strips TradingView symbol-search's <em>...</em> highlight markup from a matched symbol/text.
+function stripSearchHighlight(text) {
+    return (text || '').replace(/<\/?em>/g, '');
+}
+
+function normalizeExchangeName(name) {
+    return (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+// Finds the TradingView symbol (e.g. "COINBASE:BTCUSD") for a CoinGecko ticker, given the results
+// of a TradingView symbol-search call (https://symbol-search.tradingview.com/symbol_search/v3/?
+// text=...) - see content.js's openExchangeTickerLink() for how/when this is called. Pulled out
+// as its own pure function so the matching rule is unit-testable without a live fetch.
+//
+// CoinGecko and TradingView maintain independent exchange-id namespaces that often don't match
+// (e.g. CoinGecko's "gdax" vs TradingView's "COINBASE" for the same exchange - confirmed live
+// across a dozen major exchanges), so this matches on the *display* name (`exchangeName`, fuzzy,
+// case/punctuation-insensitive) rather than any identifier slug, and on the exact concatenated
+// base+target symbol (after normalizeTickerSymbol on each). Returns null when nothing matches -
+// callers should fall back to the ticker's own trade_url rather than guessing at a symbol.
+function findTradingViewSymbolMatch(results, exchangeName, base, target) {
+    if (!Array.isArray(results)) {
+        return null;
+    }
+
+    const wantedExchange = normalizeExchangeName(exchangeName);
+    const wantedSymbol = `${normalizeTickerSymbol(base)}${normalizeTickerSymbol(target)}`;
+    if (!wantedExchange || !wantedSymbol) {
+        return null;
+    }
+
+    const match = results.find(result => {
+        const resultExchange = normalizeExchangeName(result.exchange);
+        const resultSymbol = stripSearchHighlight(result.symbol).toUpperCase();
+        const exchangeMatches = resultExchange === wantedExchange
+            || resultExchange.includes(wantedExchange)
+            || wantedExchange.includes(resultExchange);
+        return !!resultExchange && exchangeMatches && resultSymbol === wantedSymbol;
+    });
+
+    if (!match) {
+        return null;
+    }
+
+    // Different result shapes carry the TradingView exchange prefix under different keys.
+    const prefix = match.prefix || (match.source2 && match.source2.id) || match.source_id;
+    if (!prefix) {
+        return null;
+    }
+
+    return `${prefix}:${stripSearchHighlight(match.symbol)}`;
+}
+
 // Expose for the Node test runner (no-op in the browser extension context, where `module` is undefined).
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { sleep, calculatePercentageOfTotal, formatCirculatingPercentage, escapeHtml, displayPrice, formatCompactUsd, formatDateOrEmpty, isAdBlockerDialogText };
+    module.exports = {
+        sleep, calculatePercentageOfTotal, formatCirculatingPercentage, escapeHtml, displayPrice,
+        formatCompactUsd, formatDateOrEmpty, isAdBlockerDialogText,
+        normalizeTickerSymbol, findTradingViewSymbolMatch
+    };
 }

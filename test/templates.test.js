@@ -110,6 +110,9 @@ test('buildExchangesTabContent renders exchange/pair/price/volume for each ticke
     assert.ok(html.includes('$81,656'));
     assert.ok(html.includes('$4.1B'));
     assert.ok(html.includes('<a class="gv-exchange-item"'));
+    assert.ok(html.includes('data-gv-exchange-name="Binance"'));
+    assert.ok(html.includes('data-gv-base="BTC"'));
+    assert.ok(html.includes('data-gv-target="USDT"'));
 });
 
 test('buildExchangesTabContent falls back to a non-link row when trade_url is missing', () => {
