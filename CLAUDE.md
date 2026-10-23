@@ -42,9 +42,10 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
   behavior).
 - `icon-16.png` / `icon-48.png` / `icon-128.png` — extension icons.
 - `test/` — Node (`node:test`) unit tests for the pure functions in
-  `utils.js` and `formatTradingPair` in `background.js`. Run with `npm test`
-  (or `node --test`). No DOM/`chrome.*`/HTML-template logic is tested here —
-  that would need a browser/DOM harness, which this project doesn't have.
+  `utils.js` and for `formatTradingPair`/the response cache in
+  `background.js`. Run with `npm test` (or `node --test`). No
+  DOM/`chrome.*`/HTML-template logic is tested here — that would need a
+  browser/DOM harness, which this project doesn't have.
 - `package.json` — `private: true`, no runtime dependencies; exists only to
   define the `test` script. Still no bundler/build step for the extension
   itself — `content_scripts` are loaded as classic scripts.
@@ -103,6 +104,16 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
   well under it rather than polling. Live price/24h-change were considered
   and intentionally left out too: TradingView's own chart already shows
   that, so duplicating it here would be redundant, not an improvement.
+- **Short-lived response cache in `background.js`.** `getCachedCoinData` /
+  `setCachedCoinData` keep successful CoinGecko responses in a plain
+  in-memory `Map`, keyed by the resolved coin id, for
+  `COIN_DATA_CACHE_TTL_MS` (60s). This exists because the
+  `MutationObserver` can re-trigger a lookup for the same symbol in quick
+  succession, which would otherwise re-fetch every time — same
+  rate-limit-avoidance motivation as not auto-refreshing. It's deliberately
+  not `chrome.storage`: the cache is allowed to be lost when the MV3
+  service worker is evicted (idle), that just costs one extra fetch, not a
+  correctness issue, so a plain `Map` is simpler and sufficient.
 - **Untrusted data rendered via `innerHTML`.** All CoinGecko response fields
   (`data.name`, `data.symbol`, `data.id`, `data.image.thumb`, social links,
   etc.) are interpolated directly into HTML strings and assigned via
