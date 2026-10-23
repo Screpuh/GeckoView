@@ -15,6 +15,15 @@ let geckoViewSettings = GV_DEFAULT_SETTINGS;
 let currentCoinData = null;
 let activeTab = 'stats';
 
+// Height of #gv-tab-content, in px - see setupTabContentResize() below. Lives at module scope
+// (not stored on any element) so a drag's chosen height survives updateCryptoContent()/renderTab()
+// reassigning innerHTML on every symbol/tab change within this page load; it intentionally does
+// NOT persist across a full page reload - this is an ad hoc "make more room right now" control,
+// not a setting.
+let gvTabContentHeight = 360;
+const GV_MIN_TAB_CONTENT_HEIGHT = 120;
+const GV_MAX_TAB_CONTENT_HEIGHT = 900;
+
 window.onload = function() {
     // This code will run when the entire page has finished loading, including stylesheets, images, etc.
     getGeckoViewSettings().then(settings => {
@@ -41,12 +50,25 @@ window.onload = function() {
         newDiv.id = 'crypto-info-geckoview';
         newDiv.innerHTML = buildHtmlHeaderResponse();
         existingDiv.insertBefore(newDiv, existingDiv.firstChild);
+        setupTabContentResize(newDiv);
 
         // Attached once, here, rather than re-attached on every re-render: newDiv itself is never
         // replaced (only its innerHTML is, on every updateCryptoContent()/renderTab() call), so a
         // listener on it survives those re-renders. Event delegation handles clicks on the tab
         // buttons/exchange rows that don't exist yet at the time this listener is attached.
         newDiv.addEventListener('click', event => {
+            // Scrolling #gv-tab-content doesn't help reach TradingView's own watchlist/other
+            // panels below GeckoView - confirmed live that their real scroll container around all
+            // of this (.widgetbar-pagescontent) has overflow-y: hidden with a fixed height, so
+            // anything pushed past it is genuinely unreachable. Collapsing instead hides
+            // everything but the header (see the .gv-collapsed CSS, templates.js) - toggled on
+            // newDiv itself (never replaced, only its innerHTML is), so it survives re-renders the
+            // same way the resize height in setupTabContentResize() does.
+            if (event.target.closest('#gv-collapse-toggle')) {
+                newDiv.classList.toggle('gv-collapsed');
+                return;
+            }
+
             const tabButton = event.target.closest('[data-gv-tab]');
             if (tabButton) {
                 renderTab(tabButton.dataset.gvTab);
@@ -64,6 +86,14 @@ window.onload = function() {
                     exchangeLink.dataset.gvTarget,
                     exchangeLink.getAttribute('href')
                 );
+                return;
+            }
+
+            // Trending rows are plain <button>s (no href to modifier-click through to - see
+            // buildTrendingTabContent()), so there's no native-behavior case to leave alone here.
+            const trendingItem = event.target.closest('.gv-trending-item[data-gv-trending-coin-id]');
+            if (trendingItem) {
+                openTrendingCoinChart(trendingItem.dataset.gvTrendingCoinId, trendingItem);
             }
         });
 
@@ -109,6 +139,48 @@ window.onload = function() {
         updateCryptoContent();
     });
 };
+
+// Lets #gv-tab-content be resized by dragging #gv-resize-handle below it, the same way
+// TradingView's own watchlist/detail panels can be - see buildResizeHandle() (templates.js) for
+// why this is self-built rather than hooked into TradingView's own (undocumented, internal)
+// resize mechanism. The height is applied as a CSS custom property on `geckoViewDiv` itself
+// (#crypto-info-geckoview, the outer div that's never replaced - only its innerHTML is, on every
+// re-render), not on #gv-tab-content directly, so it survives those re-renders without needing to
+// be reapplied on each one; buildGeckoViewStyles() reads it via `var(--gv-tab-content-height,
+// 360px)`. Delegated on `geckoViewDiv` the same way the click listener in window.onload is, since
+// the handle itself doesn't exist yet at the time this is attached (it's part of the HTML
+// innerHTML sets later).
+function setupTabContentResize(geckoViewDiv) {
+    geckoViewDiv.style.setProperty('--gv-tab-content-height', `${gvTabContentHeight}px`);
+
+    geckoViewDiv.addEventListener('mousedown', event => {
+        const handle = event.target.closest('#gv-resize-handle');
+        if (!handle) {
+            return;
+        }
+        event.preventDefault();
+
+        const contentEl = geckoViewDiv.querySelector('#gv-tab-content');
+        const startY = event.clientY;
+        const startHeight = contentEl ? contentEl.getBoundingClientRect().height : gvTabContentHeight;
+        handle.classList.add('gv-resize-handle--active');
+
+        const onMouseMove = moveEvent => {
+            const requested = startHeight + (moveEvent.clientY - startY);
+            gvTabContentHeight = Math.min(GV_MAX_TAB_CONTENT_HEIGHT, Math.max(GV_MIN_TAB_CONTENT_HEIGHT, requested));
+            geckoViewDiv.style.setProperty('--gv-tab-content-height', `${gvTabContentHeight}px`);
+        };
+
+        const onMouseUp = () => {
+            handle.classList.remove('gv-resize-handle--active');
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        };
+
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+    });
+}
 
 // Auto-dismisses TradingView's own "Ad blocker detected" upgrade-nag dialog the moment it
 // appears. TradingView renders it (and other unrelated upgrade prompts) into a shared portal
@@ -234,6 +306,51 @@ function trySwitchSymbolInPlace(tvSymbol, wantedSymbol) {
     });
 }
 
+// Trending rows don't know their target exchange up front (see buildTrendingTabContent() -
+// trending is global, not about any one coin's tickers the way the Exchanges tab already has
+// them loaded). This resolves one by reusing the same ranked-exchanges fetch the Exchanges tab
+// uses (fetchCoinExchanges/rankExchangeTickers, background.js), taking the top-ranked ticker as
+// "this coin's top exchange", then handing off to openExchangeTickerLink() for the actual
+// resolve-to-TradingView-symbol-and-switch-in-place work - no need to duplicate any of that here.
+// Falls back to the coin's own CoinGecko page (not any particular exchange) when there are no
+// tickers at all to pick a "top" one from, or anything else about this fails.
+function openTrendingCoinChart(coinId, buttonEl) {
+    const openCoinGeckoFallback = () => {
+        window.open(`https://www.coingecko.com/en/coins/${encodeURIComponent(coinId)}`, '_blank', 'noopener');
+    };
+
+    if (!isExtensionContextValid()) {
+        openCoinGeckoFallback();
+        return;
+    }
+
+    if (buttonEl) {
+        buttonEl.disabled = true;
+    }
+
+    try {
+        chrome.runtime.sendMessage({ action: 'fetchCoinExchanges', coinId }, response => {
+            if (buttonEl) {
+                buttonEl.disabled = false;
+            }
+
+            if (chrome.runtime.lastError || !response || !response.success || !Array.isArray(response.data) || response.data.length === 0) {
+                openCoinGeckoFallback();
+                return;
+            }
+
+            const topTicker = response.data[0];
+            const market = topTicker.market || {};
+            openExchangeTickerLink(market.name, topTicker.base, topTicker.target, topTicker.trade_url);
+        });
+    } catch (error) {
+        if (buttonEl) {
+            buttonEl.disabled = false;
+        }
+        openCoinGeckoFallback();
+    }
+}
+
 // Chrome tears down a content script's connection to the extension when the extension is
 // reloaded/updated/removed while the page is still open ("Extension context invalidated").
 // There is no way to recover without a full page reload, so this is checked before every fetch
@@ -301,8 +418,13 @@ function updateCryptoContent() {
         }
     } else {
         currentCoinData = null;
-        const test =  buildHtmlHeaderResponse();
-        geckoViewDiv.innerHTML = test;
+        activeTab = 'trending';
+        geckoViewDiv.innerHTML = buildHtmlHeaderResponse();
+        // There's nothing coin-specific to show without a recognized crypto symbol, but Trending
+        // is global (see the Trending architecture note) - buildHtmlHeaderResponse() already
+        // includes its tab button/content area, so render it immediately rather than leaving that
+        // area empty until a click that nothing on screen invites.
+        renderTab('trending');
     }
 }
 
@@ -311,19 +433,25 @@ function updateCryptoContent() {
 // for a Pro-type key before ever sending the message, so a Demo/no-key user's click never fires a
 // doomed request against an endpoint their key can't use; Exchanges has no such gate (works for
 // everyone, including keyless - see the handleExchangesRequest() comment in background.js for why
-// Derivatives isn't a tab here at all).
+// Derivatives isn't a tab here at all). `global: true` (Trending) means this tab isn't about
+// whatever coin is currently on screen at all - see the Trending architecture note - so renderTab()
+// below skips the "needs currentCoinData"/per-coin-id staleness rules the other (per-coin) tabs need.
 const GV_LAZY_TAB_CONFIG = {
-    exchanges: { action: 'fetchCoinExchanges', requiresPro: false, label: 'Exchanges', build: buildExchangesTabContent },
-    news: { action: 'fetchCoinNews', requiresPro: true, label: 'News', build: buildNewsTabContent },
-    insights: { action: 'fetchCoinInsights', requiresPro: true, label: 'Insights', build: buildInsightsTabContent }
+    exchanges: { action: 'fetchCoinExchanges', requiresPro: false, global: false, label: 'Exchanges', build: buildExchangesTabContent },
+    news: { action: 'fetchCoinNews', requiresPro: true, global: false, label: 'News', build: buildNewsTabContent },
+    insights: { action: 'fetchCoinInsights', requiresPro: true, global: false, label: 'Insights', build: buildInsightsTabContent },
+    trending: { action: 'fetchTrending', requiresPro: false, global: true, label: 'Trending', build: buildTrendingTabContent }
 };
 
 // Switches the widget's tab content area to `tabId`. "stats" re-renders instantly from the
 // already-fetched coin data; every other tab is fetched lazily on first click (background.js
-// caches the result per coin, so flipping back later is still fast).
+// caches the result per coin - or, for Trending, the one shared result - so flipping back later
+// is still fast).
 function renderTab(tabId) {
     const geckoViewDiv = document.querySelector('#crypto-info-geckoview');
-    if (!geckoViewDiv || !currentCoinData) {
+    const tabConfig = tabId === 'stats' ? null : GV_LAZY_TAB_CONFIG[tabId];
+    const isGlobalTab = tabId !== 'stats' && !!tabConfig && tabConfig.global;
+    if (!geckoViewDiv || (!isGlobalTab && !currentCoinData)) {
         return;
     }
 
@@ -342,7 +470,6 @@ function renderTab(tabId) {
         return;
     }
 
-    const tabConfig = GV_LAZY_TAB_CONFIG[tabId];
     if (!tabConfig) {
         return;
     }
@@ -355,7 +482,9 @@ function renderTab(tabId) {
         }
     }
 
-    const coinId = currentCoinData.id;
+    // Per-coin tabs key their request/staleness check on the coin that was active when the fetch
+    // started; a global tab like Trending has no such coin, so it's just keyed on the tab itself.
+    const coinId = isGlobalTab ? null : currentCoinData.id;
     contentEl.innerHTML = buildLoaderFragment();
 
     if (!isExtensionContextValid()) {
@@ -365,9 +494,12 @@ function renderTab(tabId) {
 
     try {
         chrome.runtime.sendMessage({ action: tabConfig.action, coinId }, response => {
-            // The user may have switched tabs or symbols while this was in flight - only apply a
-            // stale response if it's still relevant to what's currently on screen.
-            if (activeTab !== tabId || !currentCoinData || currentCoinData.id !== coinId) {
+            // The user may have switched tabs (or, for a per-coin tab, symbols) while this was in
+            // flight - only apply a stale response if it's still relevant to what's on screen now.
+            const stillRelevant = isGlobalTab
+                ? activeTab === tabId
+                : (activeTab === tabId && !!currentCoinData && currentCoinData.id === coinId);
+            if (!stillRelevant) {
                 return;
             }
 

@@ -22,6 +22,7 @@ function buildGeckoViewStyles() {
                 --gv-pill-bg-hover: #e3e9f2;
                 --gv-accent: #2962ff;
                 --gv-danger: #e04b4b;
+                --gv-success: #16a34a;
                 font-family: -apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, Helvetica, Arial, sans-serif;
                 font-size: 13px;
                 line-height: 1.4;
@@ -112,6 +113,60 @@ function buildGeckoViewStyles() {
                 display: block;
             }
 
+            #crypto-info-geckoview .gv-header__actions {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                flex-shrink: 0;
+            }
+
+            #crypto-info-geckoview .gv-header__collapse {
+                appearance: none;
+                background: none;
+                border: none;
+                padding: 0;
+                margin: 0;
+                display: flex;
+                color: var(--gv-text-muted);
+                cursor: pointer;
+                transition: transform .15s, color .15s;
+            }
+
+            #crypto-info-geckoview .gv-header__collapse:hover {
+                color: var(--gv-text);
+            }
+
+            #crypto-info-geckoview .gv-header__collapse svg {
+                width: 16px;
+                height: 16px;
+            }
+
+            /* Scrolling #gv-tab-content doesn't help reach TradingView's own panels below
+               GeckoView - confirmed live that the real scroll container around all of this
+               (.widgetbar-pagescontent) has overflow-y: hidden with a fixed height, so anything
+               GeckoView pushes past it is genuinely unreachable. Collapsing (via
+               #gv-collapse-toggle, content.js) hides everything but the header instead, so the
+               user can get GeckoView out of the way on demand rather than needing it permanently
+               short. Listed individually rather than e.g. "everything but .gv-header" so adding a
+               new top-level section here doesn't silently stay visible while collapsed. */
+            #crypto-info-geckoview.gv-collapsed .gv-links,
+            #crypto-info-geckoview.gv-collapsed .gv-categories,
+            #crypto-info-geckoview.gv-collapsed .gv-tabs,
+            #crypto-info-geckoview.gv-collapsed .gv-tab-content,
+            #crypto-info-geckoview.gv-collapsed .gv-resize-handle,
+            #crypto-info-geckoview.gv-collapsed .gv-error,
+            #crypto-info-geckoview.gv-collapsed .gv-loader-wrap {
+                display: none;
+            }
+
+            #crypto-info-geckoview.gv-collapsed .gv-header__collapse {
+                transform: rotate(-90deg);
+            }
+
+            #crypto-info-geckoview.gv-collapsed {
+                padding-bottom: 12px;
+            }
+
             #crypto-info-geckoview .gv-links {
                 display: flex;
                 flex-wrap: wrap;
@@ -191,6 +246,42 @@ function buildGeckoViewStyles() {
                 border-bottom-color: var(--gv-accent);
             }
 
+            /* Without this, a long tab (Trending's 15 rows, a coin with many stats, etc.) grows
+               #crypto-info-geckoview unbounded and pushes TradingView's own watchlist/other
+               panels below it out of the visible area - confirmed live that the real scroll
+               container around all of this (.widgetbar-pagescontent) has overflow-y: hidden with
+               a fixed height, so that pushed-down content isn't just unscrolled, it's genuinely
+               unreachable. --gv-tab-content-height is set directly on #crypto-info-geckoview by
+               content.js (see setupTabContentResize()) and survives across re-renders since that
+               outer div is never replaced, only its innerHTML. */
+            #crypto-info-geckoview .gv-tab-content {
+                max-height: var(--gv-tab-content-height, 360px);
+                overflow-y: auto;
+                overflow-x: hidden;
+            }
+
+            #crypto-info-geckoview .gv-resize-handle {
+                height: 12px;
+                margin: 2px 0 -8px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: ns-resize;
+            }
+
+            #crypto-info-geckoview .gv-resize-handle::after {
+                content: '';
+                width: 32px;
+                height: 3px;
+                border-radius: 2px;
+                background: var(--gv-border);
+            }
+
+            #crypto-info-geckoview .gv-resize-handle:hover::after,
+            #crypto-info-geckoview .gv-resize-handle--active::after {
+                background: var(--gv-accent);
+            }
+
             #crypto-info-geckoview .gv-upsell {
                 padding: 16px 0;
                 text-align: center;
@@ -220,7 +311,8 @@ function buildGeckoViewStyles() {
                 text-align: center;
             }
 
-            #crypto-info-geckoview .gv-exchange-list {
+            #crypto-info-geckoview .gv-exchange-list,
+            #crypto-info-geckoview .gv-trending-list {
                 display: flex;
                 flex-direction: column;
             }
@@ -334,6 +426,93 @@ function buildGeckoViewStyles() {
                 color: var(--gv-text-muted);
             }
 
+            /* Own block, not shared with .gv-exchange-item*, same reasoning as that one not
+               sharing with .gv-news-item*: a plain <button> here (not <a>) since which exchange
+               to link to isn't known until clicked - see buildTrendingTabContent() - and it needs
+               its own 24h-change column, which the exchange rows don't have. */
+            #crypto-info-geckoview .gv-trending-item {
+                display: flex;
+                align-items: center;
+                width: 100%;
+                gap: 10px;
+                padding: 8px 0;
+                border: none;
+                border-bottom: 1px solid var(--gv-border);
+                background: none;
+                font: inherit;
+                color: inherit;
+                text-align: left;
+                cursor: pointer;
+            }
+
+            #crypto-info-geckoview .gv-trending-item:last-child {
+                border-bottom: none;
+                padding-bottom: 0;
+            }
+
+            #crypto-info-geckoview .gv-trending-item:disabled {
+                opacity: .5;
+                cursor: default;
+            }
+
+            #crypto-info-geckoview .gv-trending-item__logo {
+                width: 24px;
+                height: 24px;
+                border-radius: 50%;
+                flex-shrink: 0;
+                object-fit: cover;
+                background: var(--gv-pill-bg);
+            }
+
+            #crypto-info-geckoview .gv-trending-item__main {
+                display: flex;
+                flex-direction: column;
+                min-width: 0;
+                flex: 1;
+            }
+
+            #crypto-info-geckoview .gv-trending-item__name {
+                font-size: 12.5px;
+                font-weight: 600;
+                color: var(--gv-text);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            #crypto-info-geckoview .gv-trending-item:not(:disabled):hover .gv-trending-item__name {
+                color: var(--gv-accent);
+            }
+
+            #crypto-info-geckoview .gv-trending-item__symbol {
+                font-size: 11px;
+                color: var(--gv-text-muted);
+            }
+
+            #crypto-info-geckoview .gv-trending-item__values {
+                display: flex;
+                flex-direction: column;
+                align-items: flex-end;
+                flex-shrink: 0;
+                text-align: right;
+            }
+
+            #crypto-info-geckoview .gv-trending-item__price {
+                font-size: 12.5px;
+                font-weight: 600;
+                color: var(--gv-text);
+            }
+
+            #crypto-info-geckoview .gv-trending-item__change--positive {
+                font-size: 11px;
+                color: var(--gv-success);
+            }
+
+            #crypto-info-geckoview .gv-trending-item__change--negative {
+                font-size: 11px;
+                color: var(--gv-danger);
+            }
+
             #crypto-info-geckoview .gv-insight-item {
                 padding-bottom: 10px;
                 border-bottom: 1px solid var(--gv-border);
@@ -421,10 +600,19 @@ const GV_ICON_WEBSITE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentCol
 const GV_ICON_X = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5l14 14M19 5L5 19"></path></svg>`;
 const GV_ICON_SEND = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"></path><path d="M22 2l-7 20-4-9-9-4 20-7z"></path></svg>`;
 const GV_ICON_CHAT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>`;
+const GV_ICON_CHEVRON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>`;
 
 // Shared widget header, used by every response variant below. When `coin` is omitted this
 // renders the plain "GeckoView" title (default/loading/error states); when provided it renders
-// the coin's logo, name, symbol and market cap rank instead (successful data state).
+// the coin's logo, name, symbol and market cap rank instead (successful data state). The collapse
+// toggle (#gv-collapse-toggle, content.js wires the click) hides everything below the header -
+// links/categories/tabs/tab-content/resize handle - so the user can get GeckoView out of the way
+// to reach TradingView's own watchlist/other panels below it without having to scroll (which
+// doesn't help: confirmed live that their real scroll container around all of this,
+// .widgetbar-pagescontent, has overflow-y: hidden with a fixed height, so content pushed past it
+// is genuinely unreachable, not just unscrolled - the #gv-tab-content max-height/scroll elsewhere
+// in this file bounds how much *we* push down, but can't by itself guarantee their own panels
+// still fit in whatever's left, especially in a short/small window).
 function buildWidgetHeader(coin) {
     const identity = coin ? `
                 <a class="gv-header__title" href="https://www.coingecko.com/en/coins/${escapeHtml(coin.id)}" target="_blank" title="${escapeHtml(coin.name)}">
@@ -441,17 +629,39 @@ function buildWidgetHeader(coin) {
         <div class="gv-header">
             <div class="gv-header__identity">${identity}
             </div>
-            <a class="gv-header__coingecko" href="${coingeckoLink}" target="_blank" title="View on CoinGecko">
-                <img src="https://3936590801-files.gitbook.io/~/files/v0/b/gitbook-x-prod.appspot.com/o/spaces%2FuBDUa2ODcAkHHV15nEGc%2Ficon%2FdxukYF8Wxc39yBmmdpey%2FCoinGecko%20Logo.svg?alt=media&amp;token=cc062811-ede6-4788-815a-576f31cd16f9" alt="">
-            </a>
+            <div class="gv-header__actions">
+                <a class="gv-header__coingecko" href="${coingeckoLink}" target="_blank" title="View on CoinGecko">
+                    <img src="https://3936590801-files.gitbook.io/~/files/v0/b/gitbook-x-prod.appspot.com/o/spaces%2FuBDUa2ODcAkHHV15nEGc%2Ficon%2FdxukYF8Wxc39yBmmdpey%2FCoinGecko%20Logo.svg?alt=media&amp;token=cc062811-ede6-4788-815a-576f31cd16f9" alt="">
+                </a>
+                <button type="button" class="gv-header__collapse" id="gv-collapse-toggle" title="Collapse GeckoView" aria-label="Collapse GeckoView">${GV_ICON_CHEVRON}</button>
+            </div>
         </div>
     `;
 }
 
+// A thin drag handle below #gv-tab-content, letting its height be resized the way TradingView's
+// own watchlist/detail panels already can be - content.js wires the actual drag (see
+// setupTabContentResize() there). This is purely self-built, not hooked into TradingView's own
+// resize mechanism at all (a `.widgetbar-widgethandle` element TradingView uses internally,
+// confirmed live) - that's deep, undocumented internal layout/flex state, the same class of risk
+// as `_exposed_chartWidgetCollection` elsewhere in this codebase, for something a plain CSS
+// max-height plus a manually-wired drag handler does just as well without depending on any of it.
+function buildResizeHandle() {
+    return `<div class="gv-resize-handle" id="gv-resize-handle" title="Drag to resize"></div>`;
+}
+
+// Shown when the current TradingView symbol isn't a recognized crypto pair (or none is selected
+// yet) - there's no coin to show Key stats/Exchanges/News/Insights for, but Trending is global,
+// not tied to the current symbol, so it's still offered here via its own trimmed single-tab nav
+// rather than the full GV_TABS. content.js renders it into #gv-tab-content immediately (not
+// waiting for a click) since there's nothing else useful to show in its place.
 function buildHtmlHeaderResponse() {
     return `
         ${buildGeckoViewStyles()}
         ${buildWidgetHeader()}
+        ${buildTabsNav('trending', GV_GLOBAL_TABS)}
+        <div class="gv-tab-content" id="gv-tab-content"></div>
+        ${buildResizeHandle()}
         `;
 }
 
@@ -521,18 +731,24 @@ function buildCategoriesRow(categories) {
 
 // The pill-tab nav content.js wires click handling onto (event delegation on #crypto-info-geckoview,
 // which persists across re-renders - see content.js). Tabs beyond "stats" are rendered lazily:
-// their content isn't fetched until clicked, so only their nav button is built here.
+// their content isn't fetched until clicked, so only their nav button is built here. "trending" is
+// global (not about whatever coin is on screen, see the Trending architecture note), so it's also
+// reachable through GV_GLOBAL_TABS below on its own, when there's no coin to anchor the rest of
+// this list to at all.
 const GV_TABS = [
     { id: 'stats', label: 'Key stats' },
     { id: 'exchanges', label: 'Exchanges' },
     { id: 'news', label: 'News' },
-    { id: 'insights', label: 'Insights' }
+    { id: 'insights', label: 'Insights' },
+    { id: 'trending', label: 'Trending' }
 ];
 
-function buildTabsNav(activeTab) {
-    const tabs = GV_TABS.map(tab => `<button type="button" class="gv-tab${tab.id === activeTab ? ' gv-tab--active' : ''}" data-gv-tab="${tab.id}">${escapeHtml(tab.label)}</button>`).join('');
+const GV_GLOBAL_TABS = [{ id: 'trending', label: 'Trending' }];
+
+function buildTabsNav(activeTab, tabs = GV_TABS) {
+    const buttons = tabs.map(tab => `<button type="button" class="gv-tab${tab.id === activeTab ? ' gv-tab--active' : ''}" data-gv-tab="${tab.id}">${escapeHtml(tab.label)}</button>`).join('');
     return `
-        <div class="gv-tabs" role="tablist">${tabs}</div>`;
+        <div class="gv-tabs" role="tablist">${buttons}</div>`;
 }
 
 // Shown in a tab's content area instead of fetching when the user doesn't have a paid CoinGecko
@@ -606,6 +822,49 @@ function buildExchangesTabContent(tickers) {
     }).join('');
 
     return `<div class="gv-exchange-list">${rows}</div>`;
+}
+
+// `coins` is already unwrapped from CoinGecko's /search/trending `coins[].item` shape by
+// background.js (see handleTrendingRequest()) - trending is global, not tied to whatever symbol
+// is currently on the TradingView chart (see the Trending architecture note), so unlike every
+// other row-list tab here, a row's target isn't known up front: which exchange it should jump to
+// isn't resolved until content.js fetches this coin's own tickers on click
+// (openTrendingCoinChart()). So each row is a <button> carrying only `data-gv-trending-coin-id`,
+// not an `<a>` with a precomputed href/data-gv-exchange-name/base/target the way
+// `.gv-exchange-item` rows are.
+function buildTrendingTabContent(coins) {
+    if (!Array.isArray(coins) || coins.length === 0) {
+        return `<p class="gv-empty-state">No trending coins right now.</p>`;
+    }
+
+    const rows = coins.map(coin => {
+        const priceUsd = coin.data && coin.data.price;
+        const changePercent = coin.data && coin.data.price_change_percentage_24h && coin.data.price_change_percentage_24h.usd;
+        const hasChange = typeof changePercent === 'number' && !Number.isNaN(changePercent);
+        const changeClass = hasChange && changePercent >= 0 ? 'gv-trending-item__change--positive' : 'gv-trending-item__change--negative';
+        const changeText = hasChange ? `${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%` : '';
+
+        const logo = coin.thumb
+            ? `<img class="gv-trending-item__logo" src="${escapeHtml(coin.thumb)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">`
+            : `<span class="gv-trending-item__logo"></span>`;
+
+        const rankSuffix = coin.market_cap_rank ? ` · #${coin.market_cap_rank}` : '';
+
+        return `
+                <button type="button" class="gv-trending-item" data-gv-trending-coin-id="${escapeHtml(coin.id)}" data-gv-trending-coin-name="${escapeHtml(coin.name)}">
+                    ${logo}
+                    <span class="gv-trending-item__main">
+                        <span class="gv-trending-item__name">${escapeHtml(coin.name)}</span>
+                        <span class="gv-trending-item__symbol">${escapeHtml((coin.symbol || '').toUpperCase())}${rankSuffix}</span>
+                    </span>
+                    <span class="gv-trending-item__values">
+                        <span class="gv-trending-item__price">${(priceUsd === null || priceUsd === undefined) ? 'N/A' : displayPrice(priceUsd)}</span>
+                        <span class="${hasChange ? changeClass : ''}">${changeText}</span>
+                    </span>
+                </button>`;
+    }).join('');
+
+    return `<div class="gv-trending-list">${rows}</div>`;
 }
 
 function buildInsightsTabContent(items) {
@@ -694,5 +953,6 @@ function buildHtmlResponse(data, settings) {
         <div class="gv-tab-content" id="gv-tab-content">
             ${buildKeyStatsTabContent(data, settings)}
         </div>
+        ${buildResizeHandle()}
     `;
 }

@@ -213,6 +213,46 @@ function handleExchangesRequest(message, sendResponse) {
     });
 }
 
+// https://docs.coingecko.com/reference/trending-search - the 15 coins CoinGecko shows as
+// currently trending, globally. Unlike every other message this file handles, this isn't about
+// any particular coin (no coinId in the message at all - see the `global: true` tabs in
+// GV_LAZY_TAB_CONFIG, content.js), so there's one shared cache entry (TRENDING_CACHE_KEY) rather
+// than one per coin id. Each entry's `item` is unwrapped here (`data.coins.map(c => c.item)`) so
+// templates.js's buildTrendingTabContent() gets a plain coin array, same shape convention as
+// buildExchangesTabContent()/buildNewsTabContent() already use. No Pro gate - confirmed live
+// (plain curl, no key) that this works on the regular Demo/keyless host, like Exchanges.
+function handleTrendingRequest(message, sendResponse) {
+    const cached = trendingCache.get(TRENDING_CACHE_KEY);
+    if (cached) {
+        sendResponse({ success: true, data: cached });
+        return;
+    }
+
+    getGeckoViewSettings().then(settings => {
+        const fetchOptions = buildCoinGeckoFetchOptions(settings.apiKey, settings.apiKeyType);
+        const baseUrl = getCoinGeckoBaseUrl(settings.apiKeyType);
+
+        fetch(`${baseUrl}/search/trending`, fetchOptions)
+            .then(parseCoinGeckoResponse)
+            .then(data => {
+                if (!data || !Array.isArray(data.coins)) {
+                    return Promise.reject(coinGeckoError((data && data.error) || 'CoinGecko returned an unexpected response. Please try again.'));
+                }
+                return data.coins.map(entry => entry && entry.item).filter(Boolean);
+            })
+            .then(coins => {
+                trendingCache.set(TRENDING_CACHE_KEY, coins);
+                sendResponse({ success: true, data: coins });
+            })
+            .catch(error => {
+                const message = (error && error.isGeckoViewError)
+                    ? error.message
+                    : 'Could not reach CoinGecko. Check your internet connection and try again.';
+                sendResponse({ success: false, error: message });
+            });
+    });
+}
+
 // Runs the in-page "jump to this exchange's chart" switch (see openExchangeTickerLink() in
 // content.js for the full why) in the TARGET TAB's own PAGE JS world, not the content script's
 // isolated world - content.js cannot see the page's `window._exposed_chartWidgetCollection`
@@ -393,6 +433,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         handleSwitchTradingViewSymbol(message, sender, sendResponse);
         return true;
     }
+
+    if (message.action === 'fetchTrending') {
+        handleTrendingRequest(message, sendResponse);
+        return true;
+    }
 });
 }
 
@@ -432,6 +477,10 @@ const coinDataCache = createTtlCache(COIN_DATA_CACHE_TTL_MS);
 const exchangesCache = createTtlCache(COIN_DATA_CACHE_TTL_MS);
 const newsCache = createTtlCache(COIN_DATA_CACHE_TTL_MS);
 const insightsCache = createTtlCache(COIN_DATA_CACHE_TTL_MS);
+// Single-entry cache (there's only ever one "current trending list", not one per coin id like the
+// others above - see handleTrendingRequest()).
+const trendingCache = createTtlCache(COIN_DATA_CACHE_TTL_MS);
+const TRENDING_CACHE_KEY = 'trending';
 
 // Thin wrappers kept for API stability (existing tests/call sites use these names directly).
 function getCachedCoinData(coin, now = Date.now()) {
@@ -474,8 +523,8 @@ if (typeof module !== 'undefined' && module.exports) {
         formatTradingPair, getCachedCoinData, setCachedCoinData, COIN_DATA_CACHE_TTL_MS,
         buildCoinGeckoFetchOptions, getCoinGeckoBaseUrl, COINGECKO_DEMO_BASE_URL, COINGECKO_PRO_BASE_URL,
         COINGECKO_HTTP_ERROR_MESSAGES, parseCoinGeckoResponse, isValidCoinData,
-        createTtlCache, newsCache, insightsCache, exchangesCache,
-        fetchCoinGeckoJsonArray, handleListEndpointRequest, handleExchangesRequest,
+        createTtlCache, newsCache, insightsCache, exchangesCache, trendingCache,
+        fetchCoinGeckoJsonArray, handleListEndpointRequest, handleExchangesRequest, handleTrendingRequest,
         KNOWN_EXCHANGE_IDS, rankExchangeTickers
     };
 }

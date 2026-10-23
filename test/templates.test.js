@@ -56,14 +56,29 @@ test('buildCategoriesRow escapes category text', () => {
     assert.ok(html.includes('&lt;script&gt;'));
 });
 
-test('buildTabsNav includes all four tabs and marks only the active one', () => {
+test('buildTabsNav includes all five tabs (including Trending) and marks only the active one', () => {
     const html = T.buildTabsNav('news');
     assert.ok(html.includes('data-gv-tab="stats"'));
     assert.ok(html.includes('data-gv-tab="exchanges"'));
     assert.ok(html.includes('data-gv-tab="news"'));
     assert.ok(html.includes('data-gv-tab="insights"'));
+    assert.ok(html.includes('data-gv-tab="trending"'));
     assert.ok(html.includes('gv-tab--active" data-gv-tab="news"'));
     assert.ok(!html.includes('gv-tab--active" data-gv-tab="stats"'));
+});
+
+test('buildTabsNav renders only the given tabs when passed an explicit list, instead of defaulting to GV_TABS', () => {
+    const html = T.buildTabsNav('trending', [{ id: 'trending', label: 'Trending' }]);
+    assert.ok(html.includes('gv-tab--active" data-gv-tab="trending"'));
+    assert.ok(!html.includes('data-gv-tab="stats"'));
+    assert.ok(!html.includes('data-gv-tab="exchanges"'));
+});
+
+test('buildHtmlHeaderResponse (no coin on screen) still offers a Trending tab and content area', () => {
+    const html = T.buildHtmlHeaderResponse();
+    assert.ok(html.includes('data-gv-tab="trending"'));
+    assert.ok(!html.includes('data-gv-tab="exchanges"'));
+    assert.ok(html.includes('id="gv-tab-content"'));
 });
 
 test('buildProUpsell names the feature and links to CoinGecko pricing', () => {
@@ -150,6 +165,50 @@ test('buildExchangesTabContent escapes untrusted CoinGecko fields', () => {
     assert.ok(!html.includes('<img onerror'));
 });
 
+test('buildTrendingTabContent shows an empty-state message for no/missing coins', () => {
+    assert.ok(T.buildTrendingTabContent([]).includes('No trending coins'));
+    assert.ok(T.buildTrendingTabContent(null).includes('No trending coins'));
+    assert.ok(T.buildTrendingTabContent(undefined).includes('No trending coins'));
+});
+
+test('buildTrendingTabContent renders name/symbol/rank/price/24h change as a clickable button carrying the coin id', () => {
+    const html = T.buildTrendingTabContent([{
+        id: 'bitcoin', name: 'Bitcoin', symbol: 'btc', market_cap_rank: 1, thumb: 'https://example.com/btc.png',
+        data: { price: 81656, price_change_percentage_24h: { usd: 3.21 } }
+    }]);
+    assert.ok(html.includes('<button type="button" class="gv-trending-item"'));
+    assert.ok(html.includes('data-gv-trending-coin-id="bitcoin"'));
+    assert.ok(html.includes('Bitcoin'));
+    assert.ok(html.includes('BTC'));
+    assert.ok(html.includes('#1'));
+    assert.ok(html.includes('$81,656'));
+    assert.ok(html.includes('+3.21%'));
+    assert.ok(html.includes('gv-trending-item__change--positive'));
+});
+
+test('buildTrendingTabContent marks a negative 24h change distinctly and keeps the minus sign', () => {
+    const html = T.buildTrendingTabContent([{
+        id: 'some-coin', name: 'Some Coin', symbol: 'sc',
+        data: { price: 1, price_change_percentage_24h: { usd: -4.5 } }
+    }]);
+    assert.ok(html.includes('-4.50%'));
+    assert.ok(html.includes('gv-trending-item__change--negative'));
+    assert.ok(!html.includes('+-4.50%'));
+});
+
+test('buildTrendingTabContent tolerates a missing price/24h-change/rank/thumb instead of throwing', () => {
+    const html = T.buildTrendingTabContent([{ id: 'x', name: 'X', symbol: 'x' }]);
+    assert.ok(html.includes('N/A'));
+    assert.ok(html.includes('<span class="gv-trending-item__logo"></span>'));
+});
+
+test('buildTrendingTabContent escapes untrusted CoinGecko fields', () => {
+    const html = T.buildTrendingTabContent([{
+        id: 'x', name: '<img onerror=alert(1)>', symbol: 'x', data: { price: 1 }
+    }]);
+    assert.ok(!html.includes('<img onerror'));
+});
+
 test('buildInsightsTabContent shows an empty-state message for no/missing insights', () => {
     assert.ok(T.buildInsightsTabContent([]).includes('No insights'));
     assert.ok(T.buildInsightsTabContent(null).includes('No insights'));
@@ -208,4 +267,23 @@ test('buildHtmlResponse omits the categories row entirely when there are none', 
     };
     const html = T.buildHtmlResponse(data);
     assert.ok(!html.includes('<div class="gv-categories">'));
+});
+
+test('buildHtmlResponse includes a resize handle below the tab content area', () => {
+    const data = {
+        id: 'bitcoin', name: 'Bitcoin', symbol: 'btc', image: { thumb: 'https://example.com/t.png' },
+        market_cap_rank: 1, categories: [],
+        links: {}, market_data: { market_cap: {}, fully_diluted_valuation: {}, total_volume: {}, atl: {}, ath: {} }
+    };
+    const html = T.buildHtmlResponse(data);
+    assert.ok(html.includes('id="gv-resize-handle"'));
+});
+
+test('buildHtmlHeaderResponse (no coin on screen) also includes a resize handle', () => {
+    assert.ok(T.buildHtmlHeaderResponse().includes('id="gv-resize-handle"'));
+});
+
+test('buildWidgetHeader always includes the collapse toggle, with or without a coin', () => {
+    assert.ok(T.buildWidgetHeader().includes('id="gv-collapse-toggle"'));
+    assert.ok(T.buildWidgetHeader({ id: 'bitcoin', name: 'Bitcoin', symbol: 'BTC', image: 'https://example.com/t.png', rank: 1 }).includes('id="gv-collapse-toggle"'));
 });

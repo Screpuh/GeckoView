@@ -121,7 +121,10 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
   full `fetchCoinNews`/`fetchCoinInsights` message-handling flow in
   `background.js` (`newsInsights.test.js` — same VM-sandbox technique, with
   `chrome.storage`/`fetch` mocked, exercising the real handler instead of a
-  reimplementation of it). Run with `npm test` (or `node --test`). What's
+  reimplementation of it); and the `fetchTrending` message-handling flow,
+  same technique again (`trending.test.js`, including that it correctly
+  unwraps `/search/trending`'s `coins[].item` wrapper shape into a plain
+  coin array). Run with `npm test` (or `node --test`). What's
   still *not* tested here: `content.js`'s DOM-watching/click-wiring logic
   itself (not the templates it calls) — that would need a real browser/DOM,
   not just a VM sandbox. If you change that wiring, verify manually with a
@@ -267,6 +270,50 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
   not `chrome.storage`: the cache is allowed to be lost when the MV3
   service worker is evicted (idle), that just costs one extra fetch, not a
   correctness issue, so a plain `Map` is simpler and sufficient.
+- **GeckoView doesn't own the vertical space it's injected into, and can't
+  make TradingView give any back.** It's inserted as the first child of
+  `.widgetbar-page.active`, ahead of TradingView's own watchlist/detail
+  panels, in normal document flow — so the taller GeckoView's content gets,
+  the further down it pushes them. Confirmed live that the real scroll
+  container around all of this, `.widgetbar-pagescontent`, has
+  `overflow-y: hidden` with a fixed height matching the visible area: once
+  pushed past that, TradingView's own panels aren't just unscrolled, they're
+  genuinely unreachable — scrolling anything doesn't help. (TradingView does
+  have its own resize mechanism for this, `.widgetbar-widgethandle`, a 5px
+  `ns-resize`-cursored strip at each panel's top edge — but it's tied to
+  TradingView's own undocumented internal layout/flex state, the same class
+  of risk as `_exposed_chartWidgetCollection` elsewhere in this codebase, so
+  it's not used or hooked into here at all.) Two purely self-built,
+  self-contained countermeasures, neither touching anything outside
+  `#crypto-info-geckoview`:
+  - **`#gv-tab-content` has its own bounded, scrollable height** (CSS
+    `max-height: var(--gv-tab-content-height, 360px); overflow-y: auto;`),
+    so a long tab's content (Trending's 15 rows, a coin with many stats,
+    etc.) scrolls within itself instead of growing `#crypto-info-geckoview`
+    unbounded. `--gv-tab-content-height` is set on `#crypto-info-geckoview`
+    itself (not on `#gv-tab-content`, which gets replaced on every
+    render) by `setupTabContentResize()` (`content.js`), which also wires a
+    plain mousedown/mousemove/mouseup drag on `#gv-resize-handle`
+    (`buildResizeHandle()`, templates.js) below it, letting the user resize
+    that area by hand the same way TradingView's own panels can be —
+    clamped between `GV_MIN_TAB_CONTENT_HEIGHT`/`GV_MAX_TAB_CONTENT_HEIGHT`
+    (120–900px). The chosen height lives in a module-scope `let` in
+    `content.js`, not on any element or in `chrome.storage` — it survives
+    `updateCryptoContent()`/`renderTab()` reassigning innerHTML within this
+    page load (an ad hoc "make more room right now" control), but
+    intentionally resets on a full page reload rather than being a
+    persisted setting.
+  - **Even a bounded `#gv-tab-content` can't guarantee TradingView's own
+    panels still fit in whatever vertical space is actually left** (a short
+    window, a narrow widgetbar, etc.), so there's also a collapse toggle
+    (`#gv-collapse-toggle`, the chevron button in `buildWidgetHeader()`) that
+    hides everything below the header — links/categories/tabs/tab-content/
+    resize handle, and the error/loader states too — via a `.gv-collapsed`
+    class content.js toggles on `#crypto-info-geckoview` itself (so, like
+    the resize height, it survives re-renders without extra bookkeeping).
+    This is the actual answer to "I want to see what's below GeckoView right
+    now": get GeckoView out of the way entirely, rather than trying to
+    guarantee it never needs to be.
 - **Categories row + the tab system (Key stats / Exchanges / News /
   Insights).** `data.categories` (plain string array, included by default in
   `/coins/{id}` — no extra API call) can be anywhere from empty to 20+
@@ -420,6 +467,61 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
       silently blocked. A plain left-click is intercepted
       (`event.preventDefault()`); a modified click (new tab/window, etc.) is
       deliberately left alone to fall through to the native `<a href>`.
+  - **Trending** (https://docs.coingecko.com/reference/trending-search) is
+    the one tab here that isn't about whatever coin is currently on the
+    TradingView chart at all — it's CoinGecko's global top-15-trending-coins
+    list — so it's architecturally different from every other tab in two
+    ways:
+    - **It's reachable even when there's no recognized coin on screen.**
+      `buildHtmlHeaderResponse()` (`templates.js`, the state
+      `updateCryptoContent()` renders for a non-crypto/no symbol) now also
+      renders a tabs nav and `#gv-tab-content`, but built from
+      `GV_GLOBAL_TABS` (just `[{id: 'trending', ...}]`) rather than the full
+      `GV_TABS` the per-coin `buildHtmlResponse()` uses — `buildTabsNav()`
+      takes that list as an optional second argument, defaulting to
+      `GV_TABS`, specifically so this didn't need a second near-duplicate
+      nav-building function. `content.js`'s non-crypto branch sets
+      `activeTab = 'trending'` and calls `renderTab('trending')` immediately
+      after (rather than waiting for a click nothing on screen would invite)
+      since there's nothing else useful to show there anyway. On a
+      recognized coin, `'trending'` is simply appended to `GV_TABS`, so it
+      shows up as an ordinary extra tab alongside Key stats/Exchanges/
+      News/Insights.
+    - **Its fetch/staleness rules in `renderTab()` (`content.js`) are keyed
+      on the tab, not on a coin id.** Every other `GV_LAZY_TAB_CONFIG` entry
+      is implicitly per-coin (gated on `currentCoinData` existing at all,
+      and a response is only applied if `currentCoinData.id` still matches
+      the coin that was active when the fetch started); Trending has a
+      `global: true` flag instead, which `renderTab()` checks to skip both
+      of those - it works with no coin selected, and a response is applied
+      as long as the Trending tab is still the active one, regardless of
+      `currentCoinData`. `background.js`'s `handleTrendingRequest()`
+      matches this on its side with one shared `trendingCache` entry
+      (`TRENDING_CACHE_KEY`), not one per coin id like `exchangesCache`/
+      `newsCache`/`insightsCache`. No Pro gate, same as Exchanges — confirmed
+      live (plain curl, no key) that `/search/trending` also works on the
+      regular Demo/keyless host.
+    - **Clicking a trending coin resolves its own "top exchange" and reuses
+      the Exchanges-tab click machinery wholesale, rather than duplicating
+      any of it.** A row doesn't know which exchange (or TradingView symbol)
+      to jump to up front - unlike an Exchanges-tab row, which already has
+      its own ticker's `base`/`target`/exchange name baked into its
+      `data-gv-*` attributes from the `/coins/{id}/tickers` call that built
+      the whole tab - so `buildTrendingTabContent()` renders each row as a
+      `<button data-gv-trending-coin-id>`, not an `<a>` with those
+      attributes pre-filled. `openTrendingCoinChart()` (`content.js`) sends
+      the same `fetchCoinExchanges` message the Exchanges tab uses (so it
+      benefits from the same `rankExchangeTickers()`-ranked,
+      per-coin-cached result - known-major-exchanges-first, then volume),
+      takes the top-ranked ticker as "this coin's top exchange", and hands
+      its market name/base/target/`trade_url` straight to
+      `openExchangeTickerLink()` — the exact same resolve-to-TradingView-
+      symbol-and-switch-in-place-or-fall-back-to-the-ticker's-own-link flow
+      an Exchanges-tab click already goes through. When a coin has no
+      tickers at all (so there's no "top exchange" to even compute), or
+      anything else about this fails, it falls back to that coin's own
+      CoinGecko page instead - there's no exchange link at all to fall back
+      to in that case.
   - **News/Insights** (https://docs.coingecko.com/reference/news,
     https://docs.coingecko.com/reference/insights) **require a paid
     CoinGecko plan** (Analyst/Lite/Pro/Enterprise — not Demo, not keyless)
