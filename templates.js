@@ -220,16 +220,19 @@ function buildGeckoViewStyles() {
                 text-align: center;
             }
 
+            #crypto-info-geckoview .gv-exchange-list {
+                display: flex;
+                flex-direction: column;
+            }
+
             #crypto-info-geckoview .gv-news-list,
-            #crypto-info-geckoview .gv-exchange-list,
             #crypto-info-geckoview .gv-insights-list {
                 display: flex;
                 flex-direction: column;
                 gap: 10px;
             }
 
-            #crypto-info-geckoview .gv-news-item,
-            #crypto-info-geckoview .gv-exchange-item {
+            #crypto-info-geckoview .gv-news-item {
                 display: block;
                 text-decoration: none;
                 color: inherit;
@@ -238,14 +241,12 @@ function buildGeckoViewStyles() {
             }
 
             #crypto-info-geckoview .gv-news-item:last-child,
-            #crypto-info-geckoview .gv-exchange-item:last-child,
             #crypto-info-geckoview .gv-insight-item:last-child {
                 border-bottom: none;
                 padding-bottom: 0;
             }
 
             #crypto-info-geckoview .gv-news-item__title,
-            #crypto-info-geckoview .gv-exchange-item__title,
             #crypto-info-geckoview .gv-insight-item__title {
                 display: block;
                 font-size: 12.5px;
@@ -254,15 +255,81 @@ function buildGeckoViewStyles() {
                 margin-bottom: 2px;
             }
 
-            #crypto-info-geckoview .gv-news-item:hover .gv-news-item__title,
-            #crypto-info-geckoview .gv-exchange-item:hover .gv-exchange-item__title {
+            #crypto-info-geckoview .gv-news-item:hover .gv-news-item__title {
                 color: var(--gv-accent);
             }
 
             #crypto-info-geckoview .gv-news-item__meta,
-            #crypto-info-geckoview .gv-exchange-item__meta,
             #crypto-info-geckoview .gv-insight-item__meta {
                 display: block;
+                font-size: 11px;
+                color: var(--gv-text-muted);
+            }
+
+            #crypto-info-geckoview .gv-exchange-item {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 8px 0;
+                border-bottom: 1px solid var(--gv-border);
+                text-decoration: none;
+                color: inherit;
+            }
+
+            #crypto-info-geckoview .gv-exchange-item:last-child {
+                border-bottom: none;
+                padding-bottom: 0;
+            }
+
+            #crypto-info-geckoview .gv-exchange-item__logo {
+                width: 24px;
+                height: 24px;
+                border-radius: 50%;
+                flex-shrink: 0;
+                object-fit: cover;
+                background: var(--gv-pill-bg);
+            }
+
+            #crypto-info-geckoview .gv-exchange-item__main {
+                display: flex;
+                flex-direction: column;
+                min-width: 0;
+                flex: 1;
+            }
+
+            #crypto-info-geckoview .gv-exchange-item__name {
+                font-size: 12.5px;
+                font-weight: 600;
+                color: var(--gv-text);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            #crypto-info-geckoview .gv-exchange-item:hover .gv-exchange-item__name {
+                color: var(--gv-accent);
+            }
+
+            #crypto-info-geckoview .gv-exchange-item__pair {
+                font-size: 11px;
+                color: var(--gv-text-muted);
+            }
+
+            #crypto-info-geckoview .gv-exchange-item__values {
+                display: flex;
+                flex-direction: column;
+                align-items: flex-end;
+                flex-shrink: 0;
+                text-align: right;
+            }
+
+            #crypto-info-geckoview .gv-exchange-item__price {
+                font-size: 12.5px;
+                font-weight: 600;
+                color: var(--gv-text);
+            }
+
+            #crypto-info-geckoview .gv-exchange-item__volume {
                 font-size: 11px;
                 color: var(--gv-text-muted);
             }
@@ -499,8 +566,10 @@ function buildNewsTabContent(items) {
 }
 
 // `tickers` is the (already top-N-capped, see background.js) list from CoinGecko's
-// /coins/{id}/tickers - where this specific coin actually trades, not a generic exchange
-// directory. trust_score is frequently null for smaller venues, so it's shown only when present.
+// /coins/{id}/tickers, sorted by volume - where this specific coin actually trades, not a
+// generic exchange directory. market.logo needs background.js's include_exchange_logo=true param;
+// falls back to a plain colored circle (no broken-image icon) when a ticker has no logo, or its
+// logo URL fails to load.
 function buildExchangesTabContent(tickers) {
     if (!Array.isArray(tickers) || tickers.length === 0) {
         return `<p class="gv-empty-state">No exchange listings found for this coin.</p>`;
@@ -509,18 +578,24 @@ function buildExchangesTabContent(tickers) {
     const rows = tickers.map(ticker => {
         const market = ticker.market || {};
         const pair = [ticker.base, ticker.target].filter(Boolean).join('/');
-        const title = [market.name, pair].filter(Boolean).join(' · ');
 
         const priceUsd = ticker.converted_last && ticker.converted_last.usd;
         const volumeUsd = ticker.converted_volume && ticker.converted_volume.usd;
-        const meta = [
-            (priceUsd === null || priceUsd === undefined) ? null : displayPrice(priceUsd),
-            (volumeUsd === null || volumeUsd === undefined) ? null : `Vol ${formatCompactUsd(volumeUsd)}`
-        ].filter(Boolean).join(' · ');
+
+        const logo = market.logo
+            ? `<img class="gv-exchange-item__logo" src="${escapeHtml(market.logo)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">`
+            : `<span class="gv-exchange-item__logo"></span>`;
 
         const content = `
-                <span class="gv-exchange-item__title">${escapeHtml(title)}</span>
-                <span class="gv-exchange-item__meta">${escapeHtml(meta)}</span>`;
+                ${logo}
+                <span class="gv-exchange-item__main">
+                    <span class="gv-exchange-item__name">${escapeHtml(market.name || 'Unknown exchange')}</span>
+                    <span class="gv-exchange-item__pair">${escapeHtml(pair)}</span>
+                </span>
+                <span class="gv-exchange-item__values">
+                    <span class="gv-exchange-item__price">${(priceUsd === null || priceUsd === undefined) ? 'N/A' : displayPrice(priceUsd)}</span>
+                    <span class="gv-exchange-item__volume">${(volumeUsd === null || volumeUsd === undefined) ? '' : `Vol ${formatCompactUsd(volumeUsd)}`}</span>
+                </span>`;
 
         // data-gv-* carry what content.js needs to try resolving this straight to the matching
         // chart on TradingView itself on click (see openExchangeTickerLink() there), falling back

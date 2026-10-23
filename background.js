@@ -143,7 +143,7 @@ function handleExchangesRequest(message, sendResponse) {
         const fetchOptions = buildCoinGeckoFetchOptions(settings.apiKey, settings.apiKeyType);
         const baseUrl = getCoinGeckoBaseUrl(settings.apiKeyType);
 
-        fetch(`${baseUrl}/coins/${encodeURIComponent(coinId)}/tickers?order=volume_desc`, fetchOptions)
+        fetch(`${baseUrl}/coins/${encodeURIComponent(coinId)}/tickers?order=volume_desc&include_exchange_logo=true`, fetchOptions)
             .then(parseCoinGeckoResponse)
             .then(data => {
                 if (!data || !Array.isArray(data.tickers)) {

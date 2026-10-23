@@ -272,14 +272,27 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
   button/label, and one in `GV_LAZY_TAB_CONFIG` for how to fetch and render
   it (`action`, `requiresPro`, `label`, `build`).
   - **Exchanges** (`fetchCoinExchanges` → `handleExchangesRequest()`) uses
-    `/coins/{id}/tickers?order=volume_desc`
-    (https://docs.coingecko.com/reference/coins-id-tickers), sliced to the
-    top 10 client-side. Confirmed live (plain `curl`, no key) that this is
-    small (~65KB) and fast (~0.25s) regardless of coin, and works on the
-    regular Demo/keyless host — so, unlike News/Insights, there's no
-    `requiresPro` gate; it uses the same `getCoinGeckoBaseUrl`/
+    `/coins/{id}/tickers?order=volume_desc&include_exchange_logo=true`
+    (https://docs.coingecko.com/reference/coins-id-tickers) — server-side
+    sorted by 24h volume descending, sliced to the top 10 client-side (not
+    re-sorted; CoinGecko's own ordering is trusted as-is).
+    `include_exchange_logo=true` adds `market.logo`, rendered by
+    `buildExchangesTabContent()` as a small circular icon (falls back to a
+    plain colored circle via CSS, not a broken-image icon, when a ticker
+    has no logo or its URL 404s — `onerror="this.style.visibility='hidden'"`
+    keeps the layout slot reserved rather than reflowing the row). Confirmed
+    live (plain `curl`, no key) that the base request is small (~65KB) and
+    fast (~0.25s) regardless of coin, and works on the regular Demo/keyless
+    host — so, unlike News/Insights, there's no `requiresPro` gate; it uses
+    the same `getCoinGeckoBaseUrl`/
     `buildCoinGeckoFetchOptions(settings.apiKey, settings.apiKeyType)` split
-    as the main coin fetch, not a hardcoded Pro host.
+    as the main coin fetch, not a hardcoded Pro host. Each row is a
+    icon + two-column (name/pair left, price/volume right) layout — a
+    different enough visual pattern from the News/Insights list items that
+    it has its own `gv-exchange-item*` CSS, not shared with
+    `gv-news-item*`/`gv-insight-item*` the way the list-wrapper spacing
+    rule used to (unshared on purpose: the exchange rows' own vertical
+    padding would have doubled up with the shared list `gap`).
   - **Exchange rows link to the matching TradingView chart, not the
     exchange's own site, when that can be resolved.**
     `openExchangeTickerLink()` in `content.js` calls

@@ -126,6 +126,22 @@ test('buildExchangesTabContent omits price/volume from the meta line when absent
     assert.ok(!html.includes('Vol'));
 });
 
+test('buildExchangesTabContent renders a logo image when market.logo is present', () => {
+    const html = T.buildExchangesTabContent([{
+        market: { name: 'Binance', logo: 'https://example.com/binance.png' }, base: 'BTC', target: 'USDT',
+        trade_url: 'https://example.com'
+    }]);
+    assert.ok(html.includes('<img class="gv-exchange-item__logo" src="https://example.com/binance.png"'));
+});
+
+test('buildExchangesTabContent falls back to a plain placeholder (no <img>) when market.logo is missing', () => {
+    const html = T.buildExchangesTabContent([{
+        market: { name: 'Example' }, base: 'BTC', target: 'USDT', trade_url: 'https://example.com'
+    }]);
+    assert.ok(!html.includes('<img'));
+    assert.ok(html.includes('<span class="gv-exchange-item__logo">'));
+});
+
 test('buildExchangesTabContent escapes untrusted CoinGecko fields', () => {
     const html = T.buildExchangesTabContent([{
         market: { name: '<img onerror=alert(1)>' }, base: 'BTC', target: 'USDT',
