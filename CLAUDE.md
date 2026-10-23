@@ -57,9 +57,11 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
   and `chrome.storage.sync` helpers (`getGeckoViewSettings`,
   `setGeckoViewSetting`, `watchGeckoViewSettings`). Includes `apiKey` (string,
   default `''`) and `apiKeyType` (`'demo'` | `'pro'`, default `'demo'`) for
-  the optional user-supplied CoinGecko API key, and
+  the optional user-supplied CoinGecko API key,
   `autoCloseAdBlockerPopup` (boolean, default `true`, unrelated to the
-  CoinGecko widget) — see their respective architecture notes below. Loaded
+  CoinGecko widget), and `showCategories` (boolean, default `false`,
+  unlike every other display toggle here) — see
+  their respective architecture notes below. Loaded
   by both the content-script bundle, by
   `background.js` (via `importScripts`), and by `popup.html`, so all four
   always agree on what settings exist and default to. Only the two data
@@ -359,9 +361,26 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
 - **Categories row + the tab system (Key stats / Exchanges / News /
   Insights).** `data.categories` (plain string array, included by default in
   `/coins/{id}` — no extra API call) can be anywhere from empty to 20+
-  entries; `buildCategoriesRow()` hides the whole row for zero, and caps
-  rendering at `GV_MAX_VISIBLE_CATEGORIES` (6) with a "+N more" pill so one
-  heavily-tagged coin can't blow out the widget's height. `GV_TABS`
+  entries; `buildCategoriesRow()` hides the whole row for zero (always, not
+  user-configurable — there's nothing to show), caps rendering at
+  `GV_MAX_VISIBLE_CATEGORIES` (6) with a "+N more" pill so one heavily-tagged
+  coin can't blow out the widget's height, and is hidden by default
+  regardless of whether a coin has categories, via the popup's "Categories"
+  checkbox under "Widget content" (`showCategories` in `settings.js`,
+  default `false` — the one display toggle here that defaults off, an
+  explicit choice, not an oversight). That setting has its own hand-written
+  popup checkbox rather than one generated from `GV_STAT_OPTIONS`, since
+  that list is specifically the Key stats tab's own rows — the categories
+  row sits above the tabs entirely, shown regardless of which one is active.
+  Like the `GV_STAT_OPTIONS`-driven toggles (and unlike
+  `enabled`/`autoCloseAdBlockerPopup`), it applies live, no refresh needed —
+  `buildCategoriesRow(categories, settings)` is checked at render time, same
+  `isStatVisible()`-style "missing/non-false means visible" convention
+  (which is why the *function's own* default, used when `settings` is
+  omitted entirely such as in templates.test.js, is still "visible" even
+  though the real `GV_DEFAULT_SETTINGS.showCategories` is `false` - those
+  are two different things: the function's fallback for "no settings object
+  given at all" vs. the actual shipped default). `GV_TABS`
   (`templates.js`) lists the tabs; `GV_LAZY_TAB_CONFIG` (`content.js`) is
   the per-tab fetch/gating config for everything except "Key stats" (always
   available, rendered from the already-fetched coin data, no extra fetch).

@@ -711,10 +711,17 @@ function isStatVisible(settings, key) {
 
 // A coin can have anywhere from 0 to 20+ categories (CoinGecko's `categories` field, included by
 // default in /coins/{id} - no extra API call). Cap how many pills render so one heavily-tagged
-// coin can't blow out the widget's height; '' (hidden section entirely) when there are none.
+// coin can't blow out the widget's height; '' (hidden section entirely) when there are none, or
+// when the user's turned the row off entirely via `settings.showCategories` (settings.js) - same
+// "missing/non-false settings key means visible" convention as isStatVisible() above, so omitting
+// `settings` (e.g. in tests) still shows it, as before this toggle existed.
 const GV_MAX_VISIBLE_CATEGORIES = 6;
 
-function buildCategoriesRow(categories) {
+function buildCategoriesRow(categories, settings) {
+    if (settings && settings.showCategories === false) {
+        return '';
+    }
+
     const clean = Array.isArray(categories) ? categories.filter(c => typeof c === 'string' && c.trim()) : [];
     if (clean.length === 0) {
         return '';
@@ -948,7 +955,7 @@ function buildHtmlResponse(data, settings) {
             rank: data.market_cap_rank
         })}
         ${linksRow}
-        ${buildCategoriesRow(data.categories)}
+        ${buildCategoriesRow(data.categories, settings)}
         ${buildTabsNav('stats')}
         <div class="gv-tab-content" id="gv-tab-content">
             ${buildKeyStatsTabContent(data, settings)}

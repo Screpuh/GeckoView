@@ -4,7 +4,7 @@ const { GV_DEFAULT_SETTINGS, GV_STAT_OPTIONS } = require('../settings.js');
 
 // Boolean settings that get their own hand-written checkbox in popup.html (not one generated
 // from GV_STAT_OPTIONS, which is only for the widget's Key stats rows).
-const NON_STAT_BOOLEAN_SETTINGS = ['enabled', 'autoCloseAdBlockerPopup'];
+const NON_STAT_BOOLEAN_SETTINGS = ['enabled', 'autoCloseAdBlockerPopup', 'showCategories'];
 
 test('GV_DEFAULT_SETTINGS has a boolean "enabled" master toggle', () => {
     assert.equal(typeof GV_DEFAULT_SETTINGS.enabled, 'boolean');
@@ -12,6 +12,11 @@ test('GV_DEFAULT_SETTINGS has a boolean "enabled" master toggle', () => {
 
 test('GV_DEFAULT_SETTINGS has a boolean "autoCloseAdBlockerPopup" toggle', () => {
     assert.equal(typeof GV_DEFAULT_SETTINGS.autoCloseAdBlockerPopup, 'boolean');
+});
+
+test('GV_DEFAULT_SETTINGS has a boolean "showCategories" toggle, defaulting to hidden', () => {
+    assert.equal(typeof GV_DEFAULT_SETTINGS.showCategories, 'boolean');
+    assert.equal(GV_DEFAULT_SETTINGS.showCategories, false);
 });
 
 test('every GV_STAT_OPTIONS key has a matching boolean default in GV_DEFAULT_SETTINGS', () => {

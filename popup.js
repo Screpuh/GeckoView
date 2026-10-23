@@ -4,6 +4,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     const enabledCheckbox = document.getElementById('gv-enabled');
     const autoCloseAdBlockCheckbox = document.getElementById('gv-auto-close-adblock');
+    const showCategoriesCheckbox = document.getElementById('gv-show-categories');
     const statOptionsContainer = document.getElementById('gv-stat-options');
     const apiKeyInput = document.getElementById('gv-api-key');
     const apiKeyTypeSelect = document.getElementById('gv-api-key-type');
@@ -20,6 +21,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     autoCloseAdBlockCheckbox.addEventListener('change', () => {
         setGeckoViewSetting('autoCloseAdBlockerPopup', autoCloseAdBlockCheckbox.checked);
+    });
+
+    // Unlike the two toggles above, this applies live (no refresh needed) - content.js re-renders
+    // on every settings change, same as the Key stats checkboxes below.
+    showCategoriesCheckbox.addEventListener('change', () => {
+        setGeckoViewSetting('showCategories', showCategoriesCheckbox.checked);
     });
 
     // "change" (not "input") fires once the field loses focus after being edited, which is
@@ -59,6 +66,7 @@ document.addEventListener('DOMContentLoaded', () => {
     getGeckoViewSettings().then(settings => {
         enabledCheckbox.checked = settings.enabled;
         autoCloseAdBlockCheckbox.checked = settings.autoCloseAdBlockerPopup;
+        showCategoriesCheckbox.checked = settings.showCategories;
         apiKeyInput.value = settings.apiKey;
         apiKeyTypeSelect.value = settings.apiKeyType;
         GV_STAT_OPTIONS.forEach(option => {

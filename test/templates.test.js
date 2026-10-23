@@ -56,6 +56,16 @@ test('buildCategoriesRow escapes category text', () => {
     assert.ok(html.includes('&lt;script&gt;'));
 });
 
+test('buildCategoriesRow is hidden when settings.showCategories is false, even with categories present', () => {
+    assert.equal(T.buildCategoriesRow(['DeFi'], { showCategories: false }), '');
+});
+
+test('buildCategoriesRow still shows categories when settings is missing, or showCategories is anything but false', () => {
+    assert.ok(T.buildCategoriesRow(['DeFi']).includes('DeFi'));
+    assert.ok(T.buildCategoriesRow(['DeFi'], {}).includes('DeFi'));
+    assert.ok(T.buildCategoriesRow(['DeFi'], { showCategories: true }).includes('DeFi'));
+});
+
 test('buildTabsNav includes all five tabs (including Trending) and marks only the active one', () => {
     const html = T.buildTabsNav('news');
     assert.ok(html.includes('data-gv-tab="stats"'));

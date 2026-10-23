@@ -16,6 +16,13 @@ const GV_DEFAULT_SETTINGS = {
     // '' means "no key / anonymous requests" (background.js then ignores apiKeyType entirely).
     apiKey: '',
     apiKeyType: 'demo', // 'demo' | 'pro'
+    // Controls the categories row (e.g. "Layer 1 (L1)", "DeFi") shown above the tabs, not a Key
+    // stats row - kept out of GV_STAT_OPTIONS below, which is specifically that tab's rows, with
+    // its own hand-written popup checkbox instead (see popup.html/popup.js). Like the per-stat
+    // toggles, and unlike `enabled`/`autoCloseAdBlockerPopup`, this applies live (no refresh
+    // needed) since content.js re-renders on every settings change. Defaults to off, unlike every
+    // other display toggle here (all default on) - an explicit choice, not an oversight.
+    showCategories: false,
     showMarketCap: true,
     showFullyDilutedValuation: true,
     showTotalVolume: true,
