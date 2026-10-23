@@ -12,9 +12,11 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
 ## File map
 
 - `manifest.json` — MV3 manifest. Registers the background service worker,
-  `host_permissions` for `api.coingecko.com`, the content scripts (matches
-  `https://www.tradingview.com/chart/*`, loaded in order `utils.js` →
-  `templates.js` → `content.js`), and the popup/icons for the toolbar action.
+  `host_permissions` for `api.coingecko.com`, the `storage` permission (for
+  `chrome.storage.sync` settings), the content scripts (matches
+  `https://www.tradingview.com/chart/*`, loaded in order `settings.js` →
+  `utils.js` → `templates.js` → `content.js`), and the popup/icons for the
+  toolbar action.
 - `background.js` — Service worker. Listens for a `fetchCoinData` message from
   the content script, calls the CoinGecko API (`/coins/{id}`, falling back to
   `/search?query=` when the direct lookup 404s), and sends the result back via
@@ -27,25 +29,50 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
   and `content.js`: `sleep`, `calculatePercentageOfTotal`,
   `formatCirculatingPercentage`, `escapeHtml`, `displayPrice`. Also exported
   via a `typeof module` guard for Node tests.
+- `settings.js` — Settings schema (`GV_DEFAULT_SETTINGS`, `GV_STAT_OPTIONS`)
+  and `chrome.storage.sync` helpers (`getGeckoViewSettings`,
+  `setGeckoViewSetting`, `watchGeckoViewSettings`). Loaded by both the
+  content-script bundle and `popup.html`, so `content.js`/`templates.js` and
+  `popup.js` always agree on what settings exist and default to. Only the
+  two data structures are exported for Node tests — the `chrome.storage.*`
+  wrappers aren't unit tested (no `chrome` mock), same tradeoff as the
+  `chrome.runtime` listener in `background.js`.
 - `templates.js` — All HTML-building functions for the injected widget panel
   (`buildHtmlHeaderResponse`, `buildHtmlErrorResponse`,
   `buildLoaderHtmlResponse`, `buildHtmlResponse`), sharing one
   `buildWidgetHeader(coin)` helper for the header/CoinGecko-link markup common
-  to all four states.
-- `content.js` — Runs on TradingView chart pages. Watches the symbol-search
-  toolbar with a `MutationObserver`, detects when the selected instrument is a
-  crypto asset, asks `background.js` for CoinGecko data, and renders the
-  result via the template functions from `templates.js`. Contains only
-  DOM-watching/orchestration logic — no HTML templates or pure utilities live
-  here anymore.
-- `popup.html` — Toolbar popup; currently a static placeholder (title only, no
-  behavior).
+  to all four states. `buildHtmlResponse(data, settings)` uses
+  `isStatVisible()`/`buildStatRow()` to conditionally include each Key
+  stats row based on `settings` (see `settings.js`); omitting `settings`
+  entirely shows every stat, so existing callers/tests are unaffected.
+- `content.js` — Runs on TradingView chart pages. Reads settings on load via
+  `getGeckoViewSettings()` and bails out entirely if `enabled` is false (the
+  master toggle only takes effect on page load/refresh). Otherwise watches
+  the symbol-search toolbar with a `MutationObserver`, detects when the
+  selected instrument is a crypto asset, asks `background.js` for CoinGecko
+  data, and renders the result via the template functions from
+  `templates.js`, passing the current settings through so stat visibility
+  matches the popup. Also calls `watchGeckoViewSettings()` to re-render
+  immediately when a per-stat toggle changes in the popup, without needing a
+  refresh (cheap since it just hits the `background.js` cache). Contains
+  only DOM-watching/orchestration logic — no HTML templates or pure
+  utilities live here.
+- `popup.html` / `popup.js` — The toolbar popup, now a real settings UI: a
+  master "Show on TradingView" toggle plus one checkbox per
+  `GV_STAT_OPTIONS` entry (built dynamically, so adding a stat option only
+  requires touching `settings.js`). Persists via `chrome.storage.sync`
+  (syncs across the user's signed-in Chrome profiles; trivial data volume,
+  well under sync quotas). MV3's popup CSP disallows inline `<script>`, so
+  all logic lives in `popup.js`, loaded after `settings.js`.
 - `icon-16.png` / `icon-48.png` / `icon-128.png` — extension icons.
 - `test/` — Node (`node:test`) unit tests for the pure functions in
-  `utils.js` and for `formatTradingPair`/the response cache in
-  `background.js`. Run with `npm test` (or `node --test`). No
-  DOM/`chrome.*`/HTML-template logic is tested here — that would need a
-  browser/DOM harness, which this project doesn't have.
+  `utils.js`, for `formatTradingPair`/the response cache in `background.js`,
+  and a schema-consistency check for `settings.js`
+  (`GV_DEFAULT_SETTINGS`/`GV_STAT_OPTIONS` keys must match both ways,
+  catching a popup checkbox with no default or vice versa). Run with
+  `npm test` (or `node --test`). No DOM/`chrome.*`/HTML-template logic is
+  tested here — that would need a browser/DOM harness, which this project
+  doesn't have.
 - `package.json` — `private: true`, no runtime dependencies; exists only to
   define the `test` script. Still no bundler/build step for the extension
   itself — `content_scripts` are loaded as classic scripts.

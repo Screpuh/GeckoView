@@ -5,50 +5,72 @@
 // isExtensionContextValid() below) once the extension context is gone and retrying is pointless.
 let geckoViewObserver = null;
 
+// Current settings (see settings.js), used by updateCryptoContent() to decide which stat rows to
+// render. Starts at the defaults so nothing is unexpectedly hidden before the real settings load.
+let geckoViewSettings = GV_DEFAULT_SETTINGS;
+
 window.onload = function() {
     // This code will run when the entire page has finished loading, including stylesheets, images, etc.
-    const existingDiv = document.querySelector('.widgetbar-page.active');
-    if (!existingDiv) {
-        return;
-    }
-    const newDiv = document.createElement('div');
+    getGeckoViewSettings().then(settings => {
+        geckoViewSettings = settings;
 
-    newDiv.id = 'crypto-info-geckoview';
-    newDiv.innerHTML = buildHtmlHeaderResponse();
-    existingDiv.insertBefore(newDiv, existingDiv.firstChild);
-
-    updateCryptoContent();
-
-    function handleMutation(mutationsList, observer) {
-        mutationsList.forEach(mutation => {
-
-            // we have to wait a bit for the changes to load so we can fetch the data from the html
-            sleep(500).then(() => {
-                updateCryptoContent();
-            });
-        });
-    }
-
-    // Function to set up MutationObserver on the target element
-    function setupMutationObserver() {
-        const targetElement = document.querySelector('#header-toolbar-symbol-search');
-        if (!targetElement) {
+        // The master on/off toggle only takes effect on page load (toggling it in the popup while
+        // this tab is open needs a refresh) - unlike the per-stat toggles below, which apply live.
+        if (!settings.enabled) {
             return;
         }
 
-        geckoViewObserver = new MutationObserver(handleMutation);
-        geckoViewObserver.observe(targetElement, {
-            childList: true,      // Watch for changes in child elements
-            subtree: true,        // Watch all descendants of targetElement
-            attributes: true,     // Watch for attribute changes
-            characterData: true   // Watch for changes in text content of targetElement
-        });
+        const existingDiv = document.querySelector('.widgetbar-page.active');
+        if (!existingDiv) {
+            return;
+        }
+        const newDiv = document.createElement('div');
 
-        // Optionally, trigger the initial handling function
-        handleMutation([], geckoViewObserver); // Initial run
-    }
+        newDiv.id = 'crypto-info-geckoview';
+        newDiv.innerHTML = buildHtmlHeaderResponse();
+        existingDiv.insertBefore(newDiv, existingDiv.firstChild);
 
-    setupMutationObserver();
+        updateCryptoContent();
+
+        function handleMutation(mutationsList, observer) {
+            mutationsList.forEach(mutation => {
+
+                // we have to wait a bit for the changes to load so we can fetch the data from the html
+                sleep(500).then(() => {
+                    updateCryptoContent();
+                });
+            });
+        }
+
+        // Function to set up MutationObserver on the target element
+        function setupMutationObserver() {
+            const targetElement = document.querySelector('#header-toolbar-symbol-search');
+            if (!targetElement) {
+                return;
+            }
+
+            geckoViewObserver = new MutationObserver(handleMutation);
+            geckoViewObserver.observe(targetElement, {
+                childList: true,      // Watch for changes in child elements
+                subtree: true,        // Watch all descendants of targetElement
+                attributes: true,     // Watch for attribute changes
+                characterData: true   // Watch for changes in text content of targetElement
+            });
+
+            // Optionally, trigger the initial handling function
+            handleMutation([], geckoViewObserver); // Initial run
+        }
+
+        setupMutationObserver();
+    });
+
+    // Live-apply per-stat visibility changes made in the popup, without needing a page refresh.
+    // Harmless no-op if the widget was never injected (enabled: false, or updateCryptoContent
+    // bails out immediately since #crypto-info-geckoview doesn't exist).
+    watchGeckoViewSettings(settings => {
+        geckoViewSettings = settings;
+        updateCryptoContent();
+    });
 };
 
 // Chrome tears down a content script's connection to the extension when the extension is
@@ -97,7 +119,7 @@ function updateCryptoContent() {
                     return;
                 }
 
-                const test =  buildHtmlResponse(response.data);
+                const test =  buildHtmlResponse(response.data, geckoViewSettings);
                 geckoViewDiv.innerHTML = test;
 
             });

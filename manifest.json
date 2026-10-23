@@ -4,13 +4,14 @@
   "version": "0.0.2",
   "manifest_version": 3,
   "host_permissions": ["https://api.coingecko.com/*"],
+  "permissions": ["storage"],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
       "matches": ["https://www.tradingview.com/chart/*"],
-      "js": ["utils.js", "templates.js", "content.js"],
+      "js": ["settings.js", "utils.js", "templates.js", "content.js"],
       "run_at": "document_end"
     }
   ],

@@ -1,15 +1,97 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <meta charset="utf-8">
   <title>GeckoView</title>
   <style>
+    :root {
+      --bg: #ffffff;
+      --text: #131722;
+      --text-muted: #787b86;
+      --border: #e0e3eb;
+      --accent: #2962ff;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #131722;
+        --text: #d1d4dc;
+        --text-muted: #868993;
+        --border: #2a2e39;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
     body {
-      width: 200px;
-      padding: 10px;
+      width: 260px;
+      margin: 0;
+      padding: 14px 16px 16px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 13px;
+    }
+
+    h1 {
+      font-size: 15px;
+      font-weight: 600;
+      margin: 0 0 12px;
+    }
+
+    .gv-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 6px 0;
+    }
+
+    .gv-row label {
+      cursor: pointer;
+    }
+
+    .gv-hint {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin: 0 0 6px;
+    }
+
+    .gv-section-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .03em;
+      color: var(--text-muted);
+      margin: 14px 0 2px;
+      border-top: 1px solid var(--border);
+      padding-top: 10px;
+    }
+
+    input[type="checkbox"] {
+      accent-color: var(--accent);
+      width: 15px;
+      height: 15px;
+      cursor: pointer;
+      flex-shrink: 0;
     }
   </style>
 </head>
 <body>
   <h1>GeckoView</h1>
+
+  <div class="gv-row">
+    <label for="gv-enabled">Show on TradingView</label>
+    <input type="checkbox" id="gv-enabled">
+  </div>
+  <p class="gv-hint">Refresh open TradingView tabs for this to take effect.</p>
+
+  <div class="gv-section-title">Key stats to show</div>
+  <div id="gv-stat-options"></div>
+
+  <script src="settings.js"></script>
+  <script src="popup.js"></script>
 </body>
 </html>

@@ -1,0 +1,31 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const { GV_DEFAULT_SETTINGS, GV_STAT_OPTIONS } = require('../settings.js');
+
+test('GV_DEFAULT_SETTINGS has a boolean "enabled" master toggle', () => {
+    assert.equal(typeof GV_DEFAULT_SETTINGS.enabled, 'boolean');
+});
+
+test('every GV_STAT_OPTIONS key has a matching boolean default in GV_DEFAULT_SETTINGS', () => {
+    // Guards against adding a popup checkbox for a setting that isn't defaulted anywhere
+    // (it would then show as "undefined"/unchecked in storage.sync.get's defaults merge).
+    for (const option of GV_STAT_OPTIONS) {
+        assert.ok(
+            Object.prototype.hasOwnProperty.call(GV_DEFAULT_SETTINGS, option.key),
+            `GV_DEFAULT_SETTINGS is missing a default for "${option.key}"`
+        );
+        assert.equal(typeof GV_DEFAULT_SETTINGS[option.key], 'boolean');
+    }
+});
+
+test('every boolean GV_DEFAULT_SETTINGS key other than "enabled" has a popup checkbox', () => {
+    // The inverse of the above: a stat default with no GV_STAT_OPTIONS entry would be a setting
+    // nobody can ever change from the popup.
+    const optionKeys = new Set(GV_STAT_OPTIONS.map(o => o.key));
+    for (const key of Object.keys(GV_DEFAULT_SETTINGS)) {
+        if (key === 'enabled') {
+            continue;
+        }
+        assert.ok(optionKeys.has(key), `"${key}" has a default but no GV_STAT_OPTIONS entry`);
+    }
+});

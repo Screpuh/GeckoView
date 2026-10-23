@@ -268,7 +268,25 @@ function buildLoaderHtmlResponse() {
     `;
 }
 
-function buildHtmlResponse(data) {
+// A single "label ... value" row in the Key stats list. `value` is expected to already be a
+// safe/formatted string (from formatUsdOrNA/formatNumberOrNA/displayPrice) - only `label` is
+// escaped here since callers below pass dynamic values but hardcoded label literals.
+function buildStatRow(label, value) {
+    return `
+            <div class="gv-stat-row">
+                <span class="gv-stat-row__label">${escapeHtml(label)}</span>
+                <span class="gv-stat-row__value">${value}</span>
+            </div>`;
+}
+
+// `settings` controls which stat rows are included (see settings.js / GV_STAT_OPTIONS). A
+// missing settings object, or a missing/non-false key in it, defaults to "visible" - so calling
+// buildHtmlResponse(data) without settings (e.g. in tests) still renders every stat, as before.
+function isStatVisible(settings, key) {
+    return !settings || settings[key] !== false;
+}
+
+function buildHtmlResponse(data, settings) {
     let CFORMAT_USD = new Intl.NumberFormat('en-EN', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 });
     let CFORMAT_NR = new Intl.NumberFormat('en-EN', { minimumFractionDigits: 0 });
 
@@ -296,6 +314,20 @@ function buildHtmlResponse(data) {
 
     const circulatingPercentage = formatCirculatingPercentage(data.market_data.circulating_supply, data.market_data.total_supply);
 
+    const statRows = [
+        isStatVisible(settings, 'showMarketCap') && buildStatRow('Market cap', formatUsdOrNA(data.market_data.market_cap.usd)),
+        isStatVisible(settings, 'showFullyDilutedValuation') && buildStatRow('Fully diluted valuation', formatUsdOrNA(data.market_data.fully_diluted_valuation.usd)),
+        isStatVisible(settings, 'showTotalVolume') && buildStatRow('24h total volume', formatUsdOrNA(data.market_data.total_volume.usd)),
+        isStatVisible(settings, 'showTotalSupply') && buildStatRow('Total supply', formatNumberOrNA(data.market_data.total_supply)),
+        isStatVisible(settings, 'showCirculatingSupply') && buildStatRow('Circulating supply', `${formatNumberOrNA(data.market_data.circulating_supply)}${circulatingPercentage}`),
+        isStatVisible(settings, 'showAthAtl') && buildStatRow('ATL / ATH', `${displayPrice(data.market_data.atl.usd)} / ${displayPrice(data.market_data.ath.usd)}`)
+    ].filter(Boolean).join('');
+
+    const statsSection = statRows ? `
+        <div class="gv-section-title">Key stats</div>
+        <div class="gv-stats">${statRows}
+        </div>` : ``;
+
     return `
         ${buildGeckoViewStyles()}
         ${buildWidgetHeader({
@@ -306,33 +338,6 @@ function buildHtmlResponse(data) {
             rank: data.market_cap_rank
         })}
         ${linksRow}
-
-        <div class="gv-section-title">Key stats</div>
-        <div class="gv-stats">
-            <div class="gv-stat-row">
-                <span class="gv-stat-row__label">Market cap</span>
-                <span class="gv-stat-row__value">${formatUsdOrNA(data.market_data.market_cap.usd)}</span>
-            </div>
-            <div class="gv-stat-row">
-                <span class="gv-stat-row__label">Fully diluted valuation</span>
-                <span class="gv-stat-row__value">${formatUsdOrNA(data.market_data.fully_diluted_valuation.usd)}</span>
-            </div>
-            <div class="gv-stat-row">
-                <span class="gv-stat-row__label">24h total volume</span>
-                <span class="gv-stat-row__value">${formatUsdOrNA(data.market_data.total_volume.usd)}</span>
-            </div>
-            <div class="gv-stat-row">
-                <span class="gv-stat-row__label">Total supply</span>
-                <span class="gv-stat-row__value">${formatNumberOrNA(data.market_data.total_supply)}</span>
-            </div>
-            <div class="gv-stat-row">
-                <span class="gv-stat-row__label">Circulating supply</span>
-                <span class="gv-stat-row__value">${formatNumberOrNA(data.market_data.circulating_supply)}${circulatingPercentage}</span>
-            </div>
-            <div class="gv-stat-row">
-                <span class="gv-stat-row__label">ATL / ATH</span>
-                <span class="gv-stat-row__value">${displayPrice(data.market_data.atl.usd)} / ${displayPrice(data.market_data.ath.usd)}</span>
-            </div>
-        </div>
+        ${statsSection}
     `;
 }
