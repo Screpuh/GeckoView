@@ -1,4 +1,70 @@
 // this file can run API calls to coingecko when triggered by the content script.
+// importScripts (pulling in settings.js for getGeckoViewSettings/GV_DEFAULT_SETTINGS) is a
+// service-worker-only global, undefined in the Node test runner, hence the guard.
+if (typeof importScripts === 'function') {
+    importScripts('settings.js');
+}
+
+// CoinGecko's Pro plan requires a different host than the free Demo plan, not just a different
+// header - sending a Pro key to the Demo host (or vice versa) just fails auth. See
+// https://docs.coingecko.com/reference/authentication (Pro) and
+// https://docs.coingecko.com/demo/reference/authentication (Demo).
+const COINGECKO_DEMO_BASE_URL = 'https://api.coingecko.com/api/v3';
+const COINGECKO_PRO_BASE_URL = 'https://pro-api.coingecko.com/api/v3';
+
+// No key (or an unset/unknown apiKeyType) always falls back to the public Demo host, which also
+// works unauthenticated.
+function getCoinGeckoBaseUrl(apiKeyType) {
+    return apiKeyType === 'pro' ? COINGECKO_PRO_BASE_URL : COINGECKO_DEMO_BASE_URL;
+}
+
+// Builds the fetch() options for a CoinGecko request, attaching the user's own API key (see
+// settings.js) under the header name that matches their key type when one is set. Pulled out as
+// its own function so it's testable without needing a real chrome.storage/fetch.
+function buildCoinGeckoFetchOptions(apiKey, apiKeyType) {
+    const trimmedKey = (apiKey || '').trim();
+    if (!trimmedKey) {
+        return undefined;
+    }
+    const headerName = apiKeyType === 'pro' ? 'x-cg-pro-api-key' : 'x-cg-demo-api-key';
+    return { headers: { [headerName]: trimmedKey } };
+}
+
+// Friendly messages for the HTTP status codes CoinGecko's docs call out as meaningful
+// (https://docs.coingecko.com/docs/errors-and-rate-limits). Anything not listed here (including
+// 404, which /coins/{id} uses for "coin not found" - an expected signal that triggers the search
+// fallback below, not a real error) falls through to the existing response-body-based handling
+// unchanged.
+const COINGECKO_HTTP_ERROR_MESSAGES = {
+    401: 'Your CoinGecko API key looks invalid, or doesn’t match the key type selected in the GeckoView popup (Demo keys need "Demo", Pro keys need "Pro").',
+    403: 'CoinGecko blocked this request. If you’re using an API key, double-check it and its key type in the GeckoView popup.',
+    408: 'The request to CoinGecko timed out. Check your connection and try again.',
+    429: 'CoinGecko rate limit reached. Wait a bit and try again, or add your own API key in the GeckoView popup for a higher limit.',
+    500: 'CoinGecko is having a server issue right now. Try again shortly.',
+    503: 'CoinGecko is temporarily unavailable (maintenance or an outage). Try again shortly.'
+};
+
+// Marks an Error as one of our own friendly, already-user-facing messages, so the top-level
+// .catch() below can tell it apart from a raw network/parsing failure (see coinGeckoError()).
+function coinGeckoError(message) {
+    const error = new Error(message);
+    error.isGeckoViewError = true;
+    return error;
+}
+
+// Parses a CoinGecko fetch() response, rejecting with a friendly message for the handful of HTTP
+// statuses above instead of letting their (possibly absent/malformed) JSON body reach the normal
+// data.error handling. Used in place of `response => response.json()` at every CoinGecko fetch.
+function parseCoinGeckoResponse(response) {
+    return response.json().catch(() => ({})).then(data => {
+        const friendlyError = COINGECKO_HTTP_ERROR_MESSAGES[response.status];
+        if (friendlyError) {
+            return Promise.reject(coinGeckoError(friendlyError));
+        }
+        return data;
+    });
+}
+
 // The chrome.* APIs only exist in the extension runtime, not in the Node test runner,
 // so this registration is skipped there (see test/formatTradingPair.test.js).
 if (typeof chrome !== 'undefined') {
@@ -13,69 +79,81 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             return true;
         }
 
-        fetch(`https://api.coingecko.com/api/v3/coins/${coin}`)
-        .then(response => response.json())
-        .then(data => {
-            if (data.error) {
-                if (data.error === 'coin not found') {
-                    // Try searching by name
-                    return fetch(`https://api.coingecko.com/api/v3/search?query=${coin}`)
-                        .then(response => response.json())
-                        .then(data => {
-                            if (data.error) {
-                                sendResponse({ success: false, error: data.error });
-                                return;
-                            }
+        getGeckoViewSettings().then(settings => {
+            const fetchOptions = buildCoinGeckoFetchOptions(settings.apiKey, settings.apiKeyType);
+            const baseUrl = getCoinGeckoBaseUrl(settings.apiKeyType);
 
-                            if (data.coins.length === 0) {
-                                sendResponse({ success: false, error: 'No search results found' });
-                                return;
-                            } else {
-                                for(let i = 0; i < data.coins.length; i++) {
-                                    if(data.coins[i].symbol.toLowerCase() == coin) {
-                                        const newCoinId = data.coins[i].api_symbol;
-                                        return fetch(`https://api.coingecko.com/api/v3/coins/${newCoinId}`)
-                                            .then(response => response.json())
-                                            .then(data => {
-                                                if (data.error) {
-                                                    sendResponse({ success: false, error: data.error });
-                                                    return;
-                                                }
-
-                                                setCachedCoinData(coin, data);
-                                                sendResponse({ success: true, data });
-                                            });
-                                    } else if (data.coins[i].name.toLowerCase() == coin) {
-                                        const newCoinId = data.coins[i].api_symbol;
-                                        return fetch(`https://api.coingecko.com/api/v3/coins/${newCoinId}`)
-                                            .then(response => response.json())
-                                            .then(data => {
-                                                if (data.error) {
-                                                    sendResponse({ success: false, error: data.error });
-                                                    return;
-                                                }
-
-                                                setCachedCoinData(coin, data);
-                                                sendResponse({ success: true, data });
-                                            });
-                                    }
+            fetch(`${baseUrl}/coins/${coin}`, fetchOptions)
+            .then(parseCoinGeckoResponse)
+            .then(data => {
+                if (data.error) {
+                    if (data.error === 'coin not found') {
+                        // Try searching by name
+                        return fetch(`${baseUrl}/search?query=${coin}`, fetchOptions)
+                            .then(parseCoinGeckoResponse)
+                            .then(data => {
+                                if (data.error) {
+                                    sendResponse({ success: false, error: data.error });
+                                    return;
                                 }
 
-                                // none of the search results matched the coin we were looking for
-                                sendResponse({ success: false, error: 'No matching coin found in search results' });
-                            }
-                        });
-                }
+                                if (data.coins.length === 0) {
+                                    sendResponse({ success: false, error: 'No search results found' });
+                                    return;
+                                } else {
+                                    for(let i = 0; i < data.coins.length; i++) {
+                                        if(data.coins[i].symbol.toLowerCase() == coin) {
+                                            const newCoinId = data.coins[i].api_symbol;
+                                            return fetch(`${baseUrl}/coins/${newCoinId}`, fetchOptions)
+                                                .then(parseCoinGeckoResponse)
+                                                .then(data => {
+                                                    if (data.error) {
+                                                        sendResponse({ success: false, error: data.error });
+                                                        return;
+                                                    }
 
-                sendResponse({ success: false, error: 'No search results found'});
-                return;
-            }
-            setCachedCoinData(coin, data);
-            sendResponse({ success: true, data });
-        }).catch(error => {
-            sendResponse({ success: false, 'error': 'An error has occurred. Please attempt your request again.'} );
+                                                    setCachedCoinData(coin, data);
+                                                    sendResponse({ success: true, data });
+                                                });
+                                        } else if (data.coins[i].name.toLowerCase() == coin) {
+                                            const newCoinId = data.coins[i].api_symbol;
+                                            return fetch(`${baseUrl}/coins/${newCoinId}`, fetchOptions)
+                                                .then(parseCoinGeckoResponse)
+                                                .then(data => {
+                                                    if (data.error) {
+                                                        sendResponse({ success: false, error: data.error });
+                                                        return;
+                                                    }
+
+                                                    setCachedCoinData(coin, data);
+                                                    sendResponse({ success: true, data });
+                                                });
+                                        }
+                                    }
+
+                                    // none of the search results matched the coin we were looking for
+                                    sendResponse({ success: false, error: 'No matching coin found in search results' });
+                                }
+                            });
+                    }
+
+                    // CoinGecko's own error text (not reached for 'coin not found' - handled above)
+                    sendResponse({ success: false, error: data.error });
+                    return;
+                }
+                setCachedCoinData(coin, data);
+                sendResponse({ success: true, data });
+            }).catch(error => {
+                // Our own HTTP-status-derived messages (coinGeckoError()) are already friendly
+                // and user-facing; anything else is a raw network/parsing failure (offline, DNS,
+                // CORS, etc.) with no useful message of its own.
+                const message = (error && error.isGeckoViewError)
+                    ? error.message
+                    : 'Could not reach CoinGecko. Check your internet connection and try again.';
+                sendResponse({ success: false, error: message });
+            });
         });
-            
+
         return true;
     }
 });
@@ -136,5 +214,9 @@ function formatTradingPair(pair) {
 
 // Expose for the Node test runner (no-op in the browser extension context, where `module` is undefined).
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { formatTradingPair, getCachedCoinData, setCachedCoinData, COIN_DATA_CACHE_TTL_MS };
+    module.exports = {
+        formatTradingPair, getCachedCoinData, setCachedCoinData, COIN_DATA_CACHE_TTL_MS,
+        buildCoinGeckoFetchOptions, getCoinGeckoBaseUrl,
+        COINGECKO_HTTP_ERROR_MESSAGES, parseCoinGeckoResponse
+    };
 }

@@ -20,12 +20,21 @@ test('every GV_STAT_OPTIONS key has a matching boolean default in GV_DEFAULT_SET
 
 test('every boolean GV_DEFAULT_SETTINGS key other than "enabled" has a popup checkbox', () => {
     // The inverse of the above: a stat default with no GV_STAT_OPTIONS entry would be a setting
-    // nobody can ever change from the popup.
+    // nobody can ever change from the popup. Non-boolean settings (e.g. "apiKey") get their own
+    // dedicated input in popup.html/popup.js instead of a checkbox, so they're excluded here.
     const optionKeys = new Set(GV_STAT_OPTIONS.map(o => o.key));
     for (const key of Object.keys(GV_DEFAULT_SETTINGS)) {
-        if (key === 'enabled') {
+        if (key === 'enabled' || typeof GV_DEFAULT_SETTINGS[key] !== 'boolean') {
             continue;
         }
         assert.ok(optionKeys.has(key), `"${key}" has a default but no GV_STAT_OPTIONS entry`);
     }
+});
+
+test('apiKey defaults to an empty string (no key / anonymous requests)', () => {
+    assert.equal(GV_DEFAULT_SETTINGS.apiKey, '');
+});
+
+test('apiKeyType defaults to "demo"', () => {
+    assert.equal(GV_DEFAULT_SETTINGS.apiKeyType, 'demo');
 });

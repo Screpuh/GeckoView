@@ -77,6 +77,62 @@
       cursor: pointer;
       flex-shrink: 0;
     }
+
+    .gv-text-input {
+      width: 100%;
+      padding: 6px 8px;
+      margin-top: 4px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text);
+      font-size: 12px;
+      font-family: inherit;
+    }
+
+    .gv-text-input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .gv-select {
+      padding: 4px 6px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 12px;
+      font-family: inherit;
+      cursor: pointer;
+    }
+
+    .gv-select:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .gv-link {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .gv-link:hover {
+      text-decoration: underline;
+    }
+
+    .gv-save-status {
+      display: block;
+      font-size: 11px;
+      color: var(--accent);
+      margin-top: 4px;
+      min-height: 14px;
+      opacity: 0;
+      transition: opacity .3s;
+    }
+
+    .gv-save-status.gv-visible {
+      opacity: 1;
+    }
   </style>
 </head>
 <body>
@@ -90,6 +146,22 @@
 
   <div class="gv-section-title">Key stats to show</div>
   <div id="gv-stat-options"></div>
+
+  <div class="gv-section-title">CoinGecko API key</div>
+  <p class="gv-hint">
+    Optional — raises your rate limit above the free anonymous tier.
+    <a class="gv-link" href="https://www.coingecko.com/en/developers/dashboard" target="_blank">Get a free key</a>
+  </p>
+  <input type="text" id="gv-api-key" class="gv-text-input" placeholder="Paste your CoinGecko API key" autocomplete="off" spellcheck="false">
+  <div class="gv-row">
+    <label for="gv-api-key-type">Key type</label>
+    <select id="gv-api-key-type" class="gv-select">
+      <option value="demo">Demo (free)</option>
+      <option value="pro">Pro (paid)</option>
+    </select>
+  </div>
+  <p class="gv-hint">Demo and Pro keys use different CoinGecko endpoints, so this has to match your key.</p>
+  <span class="gv-save-status" id="gv-api-key-status">Saved</span>
 
   <script src="settings.js"></script>
   <script src="popup.js"></script>

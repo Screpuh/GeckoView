@@ -4,6 +4,14 @@
 
 const GV_DEFAULT_SETTINGS = {
     enabled: true,
+    // Optional CoinGecko API key (from https://www.coingecko.com/en/developers/dashboard). Demo
+    // (free) and Pro (paid) keys use different hosts and header names - see
+    // https://docs.coingecko.com/reference/authentication (Pro) vs
+    // https://docs.coingecko.com/demo/reference/authentication (Demo) - and aren't distinguishable
+    // by format, so apiKeyType is a separate, explicit setting rather than something we guess at.
+    // '' means "no key / anonymous requests" (background.js then ignores apiKeyType entirely).
+    apiKey: '',
+    apiKeyType: 'demo', // 'demo' | 'pro'
     showMarketCap: true,
     showFullyDilutedValuation: true,
     showTotalVolume: true,

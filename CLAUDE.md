@@ -17,25 +17,35 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
   `https://www.tradingview.com/chart/*`, loaded in order `settings.js` →
   `utils.js` → `templates.js` → `content.js`), and the popup/icons for the
   toolbar action.
-- `background.js` — Service worker. Listens for a `fetchCoinData` message from
-  the content script, calls the CoinGecko API (`/coins/{id}`, falling back to
-  `/search?query=` when the direct lookup 404s), and sends the result back via
-  `sendResponse`. The `chrome.runtime.onMessage.addListener` registration is
-  guarded with `typeof chrome !== 'undefined'` so the file can also be
-  `require()`'d from the Node test runner. `formatTradingPair` is exported via
-  a `typeof module !== 'undefined'` guard for the same reason (no-op in the
-  browser).
+- `background.js` — Service worker. `importScripts('settings.js')` (guarded
+  for Node, where `importScripts` doesn't exist) pulls in
+  `getGeckoViewSettings` for the API key. Listens for a `fetchCoinData`
+  message from the content script, calls the CoinGecko API (`/coins/{id}`,
+  falling back to `/search?query=` when the direct lookup 404s) against
+  whichever host/header the user's `apiKey`/`apiKeyType` settings resolve to
+  (see `getCoinGeckoBaseUrl`/`buildCoinGeckoFetchOptions`), maps the HTTP
+  error statuses CoinGecko's docs call out to friendly messages (see
+  `COINGECKO_HTTP_ERROR_MESSAGES`/`parseCoinGeckoResponse`), and sends the
+  result back via `sendResponse`. The `chrome.runtime.onMessage.addListener`
+  registration is guarded with `typeof chrome !== 'undefined'` so the file
+  can also be `require()`'d from the Node test runner. Pure/testable pieces
+  (`formatTradingPair`, the cache, the API key/URL/error helpers) are
+  exported via a `typeof module !== 'undefined'` guard for the same reason
+  (no-op in the browser).
 - `utils.js` — Small, dependency-free pure helpers shared by `templates.js`
   and `content.js`: `sleep`, `calculatePercentageOfTotal`,
   `formatCirculatingPercentage`, `escapeHtml`, `displayPrice`. Also exported
   via a `typeof module` guard for Node tests.
 - `settings.js` — Settings schema (`GV_DEFAULT_SETTINGS`, `GV_STAT_OPTIONS`)
   and `chrome.storage.sync` helpers (`getGeckoViewSettings`,
-  `setGeckoViewSetting`, `watchGeckoViewSettings`). Loaded by both the
-  content-script bundle and `popup.html`, so `content.js`/`templates.js` and
-  `popup.js` always agree on what settings exist and default to. Only the
-  two data structures are exported for Node tests — the `chrome.storage.*`
-  wrappers aren't unit tested (no `chrome` mock), same tradeoff as the
+  `setGeckoViewSetting`, `watchGeckoViewSettings`). Includes `apiKey` (string,
+  default `''`) and `apiKeyType` (`'demo'` | `'pro'`, default `'demo'`) for
+  the optional user-supplied CoinGecko API key — see the API key
+  architecture note below. Loaded by both the content-script bundle, by
+  `background.js` (via `importScripts`), and by `popup.html`, so all four
+  always agree on what settings exist and default to. Only the two data
+  structures are exported for Node tests — the `chrome.storage.*` wrappers
+  aren't unit tested (no `chrome` mock), same tradeoff as the
   `chrome.runtime` listener in `background.js`.
 - `templates.js` — All HTML-building functions for the injected widget panel
   (`buildHtmlHeaderResponse`, `buildHtmlErrorResponse`,
@@ -58,16 +68,18 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
   only DOM-watching/orchestration logic — no HTML templates or pure
   utilities live here.
 - `popup.html` / `popup.js` — The toolbar popup, now a real settings UI: a
-  master "Show on TradingView" toggle plus one checkbox per
-  `GV_STAT_OPTIONS` entry (built dynamically, so adding a stat option only
-  requires touching `settings.js`). Persists via `chrome.storage.sync`
-  (syncs across the user's signed-in Chrome profiles; trivial data volume,
-  well under sync quotas). MV3's popup CSP disallows inline `<script>`, so
-  all logic lives in `popup.js`, loaded after `settings.js`.
+  master "Show on TradingView" toggle, one checkbox per `GV_STAT_OPTIONS`
+  entry (built dynamically, so adding a stat option only requires touching
+  `settings.js`), and an optional CoinGecko API key field with a Demo/Pro
+  key-type `<select>` next to it. Persists via `chrome.storage.sync` (syncs
+  across the user's signed-in Chrome profiles; trivial data volume, well
+  under sync quotas). MV3's popup CSP disallows inline `<script>`, so all
+  logic lives in `popup.js`, loaded after `settings.js`.
 - `icon-16.png` / `icon-48.png` / `icon-128.png` — extension icons.
 - `test/` — Node (`node:test`) unit tests for the pure functions in
-  `utils.js`, for `formatTradingPair`/the response cache in `background.js`,
-  and a schema-consistency check for `settings.js`
+  `utils.js`; for `formatTradingPair`, the response cache, the API
+  key/base-URL helpers, and `parseCoinGeckoResponse`'s HTTP-error mapping
+  in `background.js`; and a schema-consistency check for `settings.js`
   (`GV_DEFAULT_SETTINGS`/`GV_STAT_OPTIONS` keys must match both ways,
   catching a popup checkbox with no default or vice versa). Run with
   `npm test` (or `node --test`). No DOM/`chrome.*`/HTML-template logic is
@@ -121,10 +133,46 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
   `QUOTE_CURRENCY_SUFFIXES` list (ordered so e.g. `BUSD` is checked before
   the `USD` it ends with). New quote currencies CoinGecko-listed coins trade
   against may need adding to that list.
-- **`host_permissions` declared for api.coingecko.com.** The background
+- **`host_permissions` declared for both CoinGecko hosts.** The background
   fetch also happens to work without this (CoinGecko's API sends permissive
-  CORS headers), but declaring it is correct MV3 practice and protects
-  against CoinGecko tightening CORS in the future.
+  CORS headers), but declaring `api.coingecko.com` and `pro-api.coingecko.com`
+  is correct MV3 practice and protects against CoinGecko tightening CORS in
+  the future. Both are needed because of the Pro-vs-Demo host split below —
+  omitting `pro-api.coingecko.com` would silently break Pro key users.
+- **Optional user API key: Demo and Pro are a different host *and* header,
+  not just a different key.** CoinGecko has three access levels
+  (https://docs.coingecko.com/reference/authentication,
+  https://docs.coingecko.com/demo/reference/authentication): keyless
+  (anonymous, `api.coingecko.com`, no header, rate-limited per IP address
+  and shared with anyone else on that IP), Demo (free key,
+  `api.coingecko.com`, `x-cg-demo-api-key` header, a dedicated 100
+  req/min), and Pro (paid key, `pro-api.coingecko.com`,
+  `x-cg-pro-api-key` header, limit depends on plan). Demo and Pro keys
+  aren't distinguishable by format, so `apiKeyType` is an explicit setting,
+  not something guessed from the key string. `getCoinGeckoBaseUrl()` picks
+  the host and `buildCoinGeckoFetchOptions()` picks the header; both take
+  `apiKeyType` and default to the Demo/keyless host when it's missing or
+  unrecognized. An empty `apiKey` always means keyless (no header at all,
+  regardless of `apiKeyType`).
+- **CoinGecko HTTP error handling.** `parseCoinGeckoResponse()` (used in
+  place of `response => response.json()` at every CoinGecko fetch) checks
+  `response.status` against `COINGECKO_HTTP_ERROR_MESSAGES` — the handful of
+  statuses CoinGecko's docs
+  (https://docs.coingecko.com/docs/errors-and-rate-limits) call out as
+  meaningful: 401/403 (bad or mismatched key), 408 (timeout), 429 (rate
+  limited — the message points the user at adding/checking their API key),
+  500/503 (CoinGecko-side outage). A match rejects with a friendly,
+  already-user-facing `Error` (tagged `isGeckoViewError`) instead of letting
+  that status's body (which may not match the expected `{error: ...}`
+  shape, or may not be valid JSON at all) reach the normal
+  `data.error`-based handling. **404 is deliberately not in that map** —
+  `/coins/{id}` uses it for "coin not found," which is the expected signal
+  that triggers the search-by-name fallback, not a real error; an unmapped
+  status (404 included) just flows through to the existing body-based
+  `data.error` logic unchanged. The final `.catch()` in `background.js`
+  checks the `isGeckoViewError` tag to tell "one of our friendly messages"
+  apart from a raw network/fetch failure (offline, DNS, CORS) and only
+  shows its own generic connectivity message for the latter.
 - **No auto-refresh/polling.** Data only refreshes on symbol change (the
   existing `MutationObserver` behavior), never on a timer — CoinGecko's
   free tier rate-limits aggressively, and this extension deliberately stays
