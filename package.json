@@ -1,0 +1,10 @@
+{
+  "name": "geckoview",
+  "version": "0.0.2",
+  "private": true,
+  "description": "GeckoView: A Chrome extension integrating essential CoinGecko data into TradingView charts for quick access to vital market stats.",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test"
+  }
+}

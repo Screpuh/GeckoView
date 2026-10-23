@@ -1,4 +1,7 @@
-// this file can run API calls to coingecko when triggered by the content script
+// this file can run API calls to coingecko when triggered by the content script.
+// The chrome.* APIs only exist in the extension runtime, not in the Node test runner,
+// so this registration is skipped there (see test/formatTradingPair.test.js).
+if (typeof chrome !== 'undefined') {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === 'fetchCoinData') {
 
@@ -51,6 +54,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                                             });
                                     }
                                 }
+
+                                // none of the search results matched the coin we were looking for
+                                sendResponse({ success: false, error: 'No matching coin found in search results' });
                             }
                         });
                 }
@@ -66,6 +72,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true;
     }
 });
+}
 
 
 // check which exchange to see what format the trading pair is in and return the coin in a format that coingecko can understand
@@ -80,7 +87,7 @@ function formatTradingPair(pair, exchange) {
     } else if (['bybit'].includes(exchange)) {
         let parts = pair.split(' ');
         let coin = parts[0].toLowerCase();
-        
+
         const suffix = 'usdt';
         if (coin.endsWith(suffix)) {
             coin = coin.slice(0, -suffix.length);
@@ -102,4 +109,9 @@ function formatTradingPair(pair, exchange) {
         return coin;
     }
 
+}
+
+// Expose for the Node test runner (no-op in the browser extension context, where `module` is undefined).
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { formatTradingPair };
 }
