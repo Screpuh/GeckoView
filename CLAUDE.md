@@ -97,6 +97,17 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
   fetch also happens to work without this (CoinGecko's API sends permissive
   CORS headers), but declaring it is correct MV3 practice and protects
   against CoinGecko tightening CORS in the future.
+- **Price/change/sparkline all come from the single existing `/coins/{id}`
+  call, no extra request.** `background.js` appends `?sparkline=true` to
+  that call to get `market_data.sparkline_in_7d.price` (a ~7-day hourly
+  series); `market_data.current_price.usd` and
+  `market_data.price_change_percentage_24h` are already present by default.
+  `buildSparklinePoints()` in `utils.js` turns the price series into SVG
+  polyline points (pure/testable); `buildSparklineSvg()` in `templates.js`
+  wraps that in the actual `<svg>` and colors it to match the 24h
+  price-change badge. Deliberately no auto-refresh/polling was added here —
+  CoinGecko's free tier rate-limits aggressively, so data only refreshes on
+  symbol change (existing `MutationObserver` behavior), not on a timer.
 - **Untrusted data rendered via `innerHTML`.** All CoinGecko response fields
   (`data.name`, `data.symbol`, `data.id`, `data.image.thumb`, social links,
   etc.) are interpolated directly into HTML strings and assigned via

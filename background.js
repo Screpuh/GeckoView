@@ -6,8 +6,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === 'fetchCoinData') {
 
         const coin = formatTradingPair(message.coin);
-        
-        fetch(`https://api.coingecko.com/api/v3/coins/${coin}`)
+
+        fetch(`https://api.coingecko.com/api/v3/coins/${coin}?sparkline=true`)
         .then(response => response.json())
         .then(data => {
             if (data.error) {
@@ -28,7 +28,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                                 for(let i = 0; i < data.coins.length; i++) {
                                     if(data.coins[i].symbol.toLowerCase() == coin) {
                                         const newCoinId = data.coins[i].api_symbol;
-                                        return fetch(`https://api.coingecko.com/api/v3/coins/${newCoinId}`)
+                                        return fetch(`https://api.coingecko.com/api/v3/coins/${newCoinId}?sparkline=true`)
                                             .then(response => response.json())
                                             .then(data => {
                                                 if (data.error) {
@@ -40,7 +40,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                                             });
                                     } else if (data.coins[i].name.toLowerCase() == coin) {
                                         const newCoinId = data.coins[i].api_symbol;
-                                        return fetch(`https://api.coingecko.com/api/v3/coins/${newCoinId}`)
+                                        return fetch(`https://api.coingecko.com/api/v3/coins/${newCoinId}?sparkline=true`)
                                             .then(response => response.json())
                                             .then(data => {
                                                 if (data.error) {
