@@ -36,9 +36,12 @@ function send(sandbox, message) {
     return new Promise(resolve => sandbox.listener(message, null, resolve));
 }
 
+// identifier is deliberately not a real exchange id (none of these are in KNOWN_EXCHANGE_IDS) -
+// these tests care about count/caching/caps/errors, not the known-exchange ranking itself, which
+// rankExchangeTickers.test.js covers directly.
 function tickerFixture(n) {
     return Array.from({ length: n }, (_, i) => ({
-        market: { name: `Exchange ${i}` },
+        market: { name: `Exchange ${i}`, identifier: `fixture-exchange-${i}` },
         base: 'BTC',
         target: 'USDT',
         converted_last: { usd: 81000 + i },
@@ -102,7 +105,10 @@ test('fetchCoinExchanges resolves with an empty list, not an error, when there a
     });
     const result = await send(sandbox, { action: 'fetchCoinExchanges', coinId: 'obscure-coin' });
     assert.equal(result.success, true);
-    assert.deepEqual(result.data, []);
+    // Not assert.deepEqual(result.data, []): result.data is an array constructed inside the VM
+    // sandbox's separate realm, so deepStrictEqual (what assert/strict's deepEqual uses) fails
+    // against this test file's own `[]` even though both are, in fact, empty arrays.
+    assert.equal(result.data.length, 0);
 });
 
 test('fetchCoinExchanges surfaces the friendly rate-limit message for a 429 response', async () => {

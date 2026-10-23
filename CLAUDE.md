@@ -274,16 +274,29 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
   - **Exchanges** (`fetchCoinExchanges` → `handleExchangesRequest()`) uses
     `/coins/{id}/tickers?order=trust_score_desc&include_exchange_logo=true`
     (https://docs.coingecko.com/reference/coins-id-tickers) —
-    `trust_score_desc` is CoinGecko's own documented default order, sorted
-    server-side, sliced to the top 10 client-side (not re-sorted;
-    CoinGecko's own ordering is trusted as-is). Note: confirmed live
-    (keyless) that the per-ticker `trust_score` field itself always comes
-    back `null`, and that `order=trust_score_desc` currently returns an
-    identical ordering to `order=volume_desc` on this tier — used anyway
-    since it's what CoinGecko's API documents as the default and may differ
-    for Pro-tier requests or change over time; reverting to `volume_desc`
-    just because the two currently coincide would be papering over the
-    documented behavior rather than relying on it.
+    `trust_score_desc` is CoinGecko's own documented default order,
+    requested for completeness, but it **doesn't actually determine what
+    the tab shows**: confirmed live (keyless) that the per-ticker
+    `trust_score` field always comes back `null` on this tier, and that
+    `order=trust_score_desc` currently returns an identical raw ordering to
+    `order=volume_desc` — i.e. there's no real trust signal available via
+    the public API, and the public leaderboard is effectively volume-based,
+    which is gameable (wash trading inflates reported volume on smaller
+    exchanges) and was surfacing a lot of unfamiliar exchanges ahead of
+    major ones. `rankExchangeTickers()` fixes that client-side:
+    `KNOWN_EXCHANGE_IDS` (~17 major, verified-live exchange identifiers —
+    CoinGecko's *own* identifier scheme, a third naming scheme again,
+    separate from both the exchange's own branding and TradingView's
+    exchange codes) are ranked first by volume, with every other exchange
+    (also sorted by volume) filling in afterward up to the 10-row limit —
+    so a coin only listed on obscure venues still shows its top venues
+    instead of an empty tab, rather than only ever showing known exchanges
+    or nothing. This also dedupes to one entry per exchange (its
+    highest-volume pair), since a coin can have several quote-currency
+    pairs on the same exchange (e.g. Binance BTC/USDT and BTC/USDC) that
+    would otherwise crowd out other exchanges' rows. One fetch, no extra
+    round-trip: this is all done in one pass over the same ticker list
+    already being fetched, not a second filtered request.
     `include_exchange_logo=true` adds `market.logo`, rendered by
     `buildExchangesTabContent()` as a small circular icon (falls back to a
     plain colored circle via CSS, not a broken-image icon, when a ticker

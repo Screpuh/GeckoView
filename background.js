@@ -124,20 +124,62 @@ function handleListEndpointRequest(message, sendResponse, { pathSegment, cache, 
     });
 }
 
+// Exchanges well-known/reputable enough that most users will recognize them at a glance.
+// CoinGecko's own `trust_score` field is null on this API tier (confirmed live, and
+// order=trust_score_desc currently returns an identical ordering to order=volume_desc there -
+// see the comment on that param below), so there's no real trust signal to sort by via the public
+// API; this list stands in for it. Identifiers verified live against CoinGecko's own ticker data,
+// not guessed - CoinGecko's exchange identifiers are a third naming scheme, separate from both
+// the exchange's own branding and from TradingView's exchange codes (see the symbol-search note
+// above) - e.g. Coinbase is "gdax" here, OKX is "okex", MEXC is "mxc".
+const KNOWN_EXCHANGE_IDS = [
+    'binance', 'gdax', 'kraken', 'bybit_spot', 'okex', 'mxc', 'kucoin', 'bitstamp',
+    'gemini', 'crypto_com', 'poloniex', 'bitfinex', 'huobi', 'bitget', 'upbit', 'bithumb', 'gate'
+];
+
+// Picks and orders the tickers shown in the Exchanges tab: one entry per exchange (its
+// highest-volume pair - a coin can have several quote-currency pairs on the same exchange, e.g.
+// Binance BTC/USDT and BTC/USDC, and showing both would crowd out other exchanges), with
+// KNOWN_EXCHANGE_IDS ranked first (by volume), then whatever's left (also by volume) filling the
+// remainder up to `limit` - so a coin that isn't listed on any major exchange still shows its top
+// venues instead of an empty tab, rather than only ever showing known exchanges or nothing.
+function rankExchangeTickers(tickers, limit = 10) {
+    if (!Array.isArray(tickers)) {
+        return [];
+    }
+
+    const volumeUsd = (ticker) => (ticker.converted_volume && ticker.converted_volume.usd) || 0;
+
+    const bestByExchange = new Map();
+    for (const ticker of tickers) {
+        const identifier = ticker.market && ticker.market.identifier;
+        if (!identifier) {
+            continue;
+        }
+        const existing = bestByExchange.get(identifier);
+        if (!existing || volumeUsd(ticker) > volumeUsd(existing)) {
+            bestByExchange.set(identifier, ticker);
+        }
+    }
+
+    const deduped = Array.from(bestByExchange.values());
+    const byVolumeDesc = (a, b) => volumeUsd(b) - volumeUsd(a);
+    const known = deduped.filter(t => KNOWN_EXCHANGE_IDS.includes(t.market.identifier)).sort(byVolumeDesc);
+    const other = deduped.filter(t => !KNOWN_EXCHANGE_IDS.includes(t.market.identifier)).sort(byVolumeDesc);
+
+    return known.concat(other).slice(0, limit);
+}
+
 // Where this coin actually trades (https://docs.coingecko.com/reference/coins-id-tickers) -
 // unlike News/Insights, this is on the regular Demo/Pro host+header split (works for everyone,
-// including keyless) and is genuinely coin-specific at the API level (order=trust_score_desc,
-// CoinGecko's own documented default, server side, then a client-side top-10 slice). This is
-// deliberately NOT how a "Derivatives" tab would have to work: /derivatives has no coin filter or
-// sort at all - the only way to get per-coin results would be downloading its full ~10MB
-// unfiltered list and matching client-side, which is why there's no Derivatives tab here.
+// including keyless) and is genuinely coin-specific at the API level. This is deliberately NOT how
+// a "Derivatives" tab would have to work: /derivatives has no coin filter or sort at all - the
+// only way to get per-coin results would be downloading its full ~10MB unfiltered list and
+// matching client-side, which is why there's no Derivatives tab here.
 //
-// Note: confirmed live (keyless) that the per-ticker `trust_score` field itself always comes back
-// null, and that order=trust_score_desc currently returns the identical ordering as
-// order=volume_desc on this tier - so don't be surprised if this looks like "nothing changed" when
-// debugging. It's still the behavior CoinGecko's own API documents as the default, and may differ
-// for Pro-tier requests or change as their scoring does, so it's used as requested rather than
-// reverting to volume_desc just because the two happen to coincide right now.
+// order=trust_score_desc is still requested (CoinGecko's own documented default) even though it's
+// currently indistinguishable from volume_desc on this tier (see KNOWN_EXCHANGE_IDS above) -
+// what actually determines the tab's displayed order is rankExchangeTickers(), not this param.
 function handleExchangesRequest(message, sendResponse) {
     const coinId = message.coinId;
     const cached = exchangesCache.get(coinId);
@@ -156,7 +198,7 @@ function handleExchangesRequest(message, sendResponse) {
                 if (!data || !Array.isArray(data.tickers)) {
                     return Promise.reject(coinGeckoError((data && data.error) || 'CoinGecko returned an unexpected response. Please try again.'));
                 }
-                return data.tickers.slice(0, 10);
+                return rankExchangeTickers(data.tickers, 10);
             })
             .then(topTickers => {
                 exchangesCache.set(coinId, topTickers);
@@ -365,6 +407,7 @@ if (typeof module !== 'undefined' && module.exports) {
         buildCoinGeckoFetchOptions, getCoinGeckoBaseUrl, COINGECKO_DEMO_BASE_URL, COINGECKO_PRO_BASE_URL,
         COINGECKO_HTTP_ERROR_MESSAGES, parseCoinGeckoResponse, isValidCoinData,
         createTtlCache, newsCache, insightsCache, exchangesCache,
-        fetchCoinGeckoJsonArray, handleListEndpointRequest, handleExchangesRequest
+        fetchCoinGeckoJsonArray, handleListEndpointRequest, handleExchangesRequest,
+        KNOWN_EXCHANGE_IDS, rankExchangeTickers
     };
 }
