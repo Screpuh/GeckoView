@@ -9,6 +9,12 @@ let geckoViewObserver = null;
 // render. Starts at the defaults so nothing is unexpectedly hidden before the real settings load.
 let geckoViewSettings = GV_DEFAULT_SETTINGS;
 
+// The last successfully-fetched coin, and which tab is currently showing. Both reset whenever a
+// new successful/failed fetch starts (see updateCryptoContent()), so a stale News/Insights click
+// response from a symbol the user has since navigated away from can never render over new data.
+let currentCoinData = null;
+let activeTab = 'stats';
+
 window.onload = function() {
     // This code will run when the entire page has finished loading, including stylesheets, images, etc.
     getGeckoViewSettings().then(settings => {
@@ -29,6 +35,17 @@ window.onload = function() {
         newDiv.id = 'crypto-info-geckoview';
         newDiv.innerHTML = buildHtmlHeaderResponse();
         existingDiv.insertBefore(newDiv, existingDiv.firstChild);
+
+        // Attached once, here, rather than re-attached on every re-render: newDiv itself is never
+        // replaced (only its innerHTML is, on every updateCryptoContent()/renderTab() call), so a
+        // listener on it survives those re-renders. Event delegation handles clicks on the tab
+        // buttons that don't exist yet at the time this listener is attached.
+        newDiv.addEventListener('click', event => {
+            const tabButton = event.target.closest('[data-gv-tab]');
+            if (tabButton) {
+                renderTab(tabButton.dataset.gvTab);
+            }
+        });
 
         updateCryptoContent();
 
@@ -104,6 +121,8 @@ function updateCryptoContent() {
 
     // if the coin we found is a crypto, then we will fetch the data from coingecko
     if(type && type.textContent == 'Crypto' && target) {
+        currentCoinData = null;
+        activeTab = 'stats';
         geckoViewDiv.innerHTML = buildLoaderHtmlResponse();
 
         try {
@@ -125,6 +144,7 @@ function updateCryptoContent() {
                 // showing an error.
                 try {
                     geckoViewDiv.innerHTML = buildHtmlResponse(response.data, geckoViewSettings);
+                    currentCoinData = response.data;
                 } catch (renderError) {
                     geckoViewDiv.innerHTML = buildHtmlErrorResponse({ error: 'Could not display this coin’s data (unexpected response format).' });
                 }
@@ -136,7 +156,78 @@ function updateCryptoContent() {
             geckoViewDiv.innerHTML = buildHtmlErrorResponse({ error: 'GeckoView was updated — refresh this page to keep using it.' });
         }
     } else {
+        currentCoinData = null;
         const test =  buildHtmlHeaderResponse();
         geckoViewDiv.innerHTML = test;
+    }
+}
+
+// Switches the widget's tab content area to `tabId` ("stats"/"news"/"insights"). "stats" re-renders
+// instantly from the already-fetched coin data; "news"/"insights" are fetched lazily on first
+// click (background.js caches the result, so flipping back later is still fast) and gated on the
+// user having a Pro-type API key client-side, so a Demo/no-key user never fires a doomed request.
+function renderTab(tabId) {
+    const geckoViewDiv = document.querySelector('#crypto-info-geckoview');
+    if (!geckoViewDiv || !currentCoinData) {
+        return;
+    }
+
+    activeTab = tabId;
+    geckoViewDiv.querySelectorAll('[data-gv-tab]').forEach(button => {
+        button.classList.toggle('gv-tab--active', button.dataset.gvTab === tabId);
+    });
+
+    const contentEl = geckoViewDiv.querySelector('#gv-tab-content');
+    if (!contentEl) {
+        return;
+    }
+
+    if (tabId === 'stats') {
+        contentEl.innerHTML = buildKeyStatsTabContent(currentCoinData, geckoViewSettings);
+        return;
+    }
+
+    const hasProKey = geckoViewSettings.apiKeyType === 'pro' && !!(geckoViewSettings.apiKey || '').trim();
+    if (!hasProKey) {
+        contentEl.innerHTML = buildProUpsell(tabId === 'news' ? 'News' : 'Insights');
+        return;
+    }
+
+    const coinId = currentCoinData.id;
+    contentEl.innerHTML = buildLoaderFragment();
+
+    if (!isExtensionContextValid()) {
+        contentEl.innerHTML = `<p class="gv-error">GeckoView was updated — refresh this page to keep using it.</p>`;
+        return;
+    }
+
+    try {
+        const action = tabId === 'news' ? 'fetchCoinNews' : 'fetchCoinInsights';
+        chrome.runtime.sendMessage({ action, coinId }, response => {
+            // The user may have switched tabs or symbols while this was in flight - only apply a
+            // stale response if it's still relevant to what's currently on screen.
+            if (activeTab !== tabId || !currentCoinData || currentCoinData.id !== coinId) {
+                return;
+            }
+
+            const freshContentEl = document.querySelector('#crypto-info-geckoview #gv-tab-content');
+            if (!freshContentEl) {
+                return;
+            }
+
+            if (chrome.runtime.lastError) {
+                freshContentEl.innerHTML = `<p class="gv-error">GeckoView was updated — refresh this page to keep using it.</p>`;
+                return;
+            }
+
+            if (!response.success) {
+                freshContentEl.innerHTML = `<p class="gv-error">${escapeHtml(response.error || 'Something went wrong.')}</p>`;
+                return;
+            }
+
+            freshContentEl.innerHTML = tabId === 'news' ? buildNewsTabContent(response.data) : buildInsightsTabContent(response.data);
+        });
+    } catch (error) {
+        contentEl.innerHTML = `<p class="gv-error">GeckoView was updated — refresh this page to keep using it.</p>`;
     }
 }

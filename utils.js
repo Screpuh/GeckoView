@@ -56,7 +56,20 @@ function displayPrice(price) {
     }
 }
 
+// Formats an ISO 8601 timestamp (e.g. news/insights `posted_at`) as a short locale date string,
+// or '' for a missing/invalid value - callers can treat '' as "omit this piece of metadata".
+function formatDateOrEmpty(isoString) {
+    if (!isoString) {
+        return '';
+    }
+    const date = new Date(isoString);
+    if (Number.isNaN(date.getTime())) {
+        return '';
+    }
+    return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
 // Expose for the Node test runner (no-op in the browser extension context, where `module` is undefined).
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { sleep, calculatePercentageOfTotal, formatCirculatingPercentage, escapeHtml, displayPrice };
+    module.exports = { sleep, calculatePercentageOfTotal, formatCirculatingPercentage, escapeHtml, displayPrice, formatDateOrEmpty };
 }

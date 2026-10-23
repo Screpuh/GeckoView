@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { calculatePercentageOfTotal, formatCirculatingPercentage, escapeHtml, displayPrice } = require('../utils.js');
+const { calculatePercentageOfTotal, formatCirculatingPercentage, escapeHtml, displayPrice, formatDateOrEmpty } = require('../utils.js');
 
 test('calculatePercentageOfTotal computes a floored percentage', () => {
     assert.equal(calculatePercentageOfTotal(19000000, 21000000), 90);
@@ -52,4 +52,15 @@ test('displayPrice formats very small prices (< $0.01) with 8 decimals', () => {
 test('displayPrice returns N/A for a missing price', () => {
     assert.equal(displayPrice(null), 'N/A');
     assert.equal(displayPrice(undefined), 'N/A');
+});
+
+test('formatDateOrEmpty formats a valid ISO timestamp as a short date', () => {
+    assert.equal(formatDateOrEmpty('2026-03-05T12:00:00Z'), new Date('2026-03-05T12:00:00Z').toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }));
+});
+
+test('formatDateOrEmpty returns empty string for a missing/empty/invalid value', () => {
+    assert.equal(formatDateOrEmpty(null), '');
+    assert.equal(formatDateOrEmpty(undefined), '');
+    assert.equal(formatDateOrEmpty(''), '');
+    assert.equal(formatDateOrEmpty('not-a-date'), '');
 });

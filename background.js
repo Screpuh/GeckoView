@@ -73,6 +73,57 @@ function isValidCoinData(data) {
     return !!data && !data.error && typeof data.id === 'string' && !!data.market_data && !!data.links;
 }
 
+// /news and /insights both return a plain JSON array on success (see
+// https://docs.coingecko.com/reference/news, https://docs.coingecko.com/reference/insights), so
+// this is shared between the two fetchCoinNews/fetchCoinInsights handlers below. Rejects (same
+// convention as parseCoinGeckoResponse/coinGeckoError) when the body isn't actually an array -
+// e.g. an unmapped error status whose body doesn't carry the top-level `error` field either.
+function fetchCoinGeckoJsonArray(url, fetchOptions) {
+    return fetch(url, fetchOptions)
+        .then(parseCoinGeckoResponse)
+        .then(data => {
+            if (!Array.isArray(data)) {
+                return Promise.reject(coinGeckoError((data && data.error) || 'CoinGecko returned an unexpected response. Please try again.'));
+            }
+            return data;
+        });
+}
+
+// News and Insights (https://docs.coingecko.com/reference/news,
+// https://docs.coingecko.com/reference/insights) both require a paid CoinGecko plan (Analyst,
+// Lite, Pro, or Enterprise) and only exist on the Pro host - a Demo key or no key can't use them
+// at all, regardless of apiKeyType. content.js already checks this client-side before ever
+// sending fetchCoinNews/fetchCoinInsights (so a non-Pro user never triggers a doomed request),
+// this is just defense in depth against a stale/raced settings read reaching here anyway.
+function handleListEndpointRequest(message, sendResponse, { pathSegment, cache, featureLabel }) {
+    const coinId = message.coinId;
+    const cached = cache.get(coinId);
+    if (cached) {
+        sendResponse({ success: true, data: cached });
+        return;
+    }
+
+    getGeckoViewSettings().then(settings => {
+        if (settings.apiKeyType !== 'pro' || !(settings.apiKey || '').trim()) {
+            sendResponse({ success: false, requiresPro: true, error: `${featureLabel} requires a paid CoinGecko plan (Analyst, Lite, Pro, or Enterprise).` });
+            return;
+        }
+
+        const fetchOptions = buildCoinGeckoFetchOptions(settings.apiKey, 'pro');
+        fetchCoinGeckoJsonArray(`${COINGECKO_PRO_BASE_URL}/${pathSegment}?coin_id=${encodeURIComponent(coinId)}&per_page=10`, fetchOptions)
+            .then(data => {
+                cache.set(coinId, data);
+                sendResponse({ success: true, data });
+            })
+            .catch(error => {
+                const message = (error && error.isGeckoViewError)
+                    ? error.message
+                    : 'Could not reach CoinGecko. Check your internet connection and try again.';
+                sendResponse({ success: false, error: message });
+            });
+    });
+}
+
 // The chrome.* APIs only exist in the extension runtime, not in the Node test runner,
 // so this registration is skipped there (see test/formatTradingPair.test.js).
 if (typeof chrome !== 'undefined') {
@@ -170,6 +221,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         return true;
     }
+
+    if (message.action === 'fetchCoinNews') {
+        handleListEndpointRequest(message, sendResponse, { pathSegment: 'news', cache: newsCache, featureLabel: 'News' });
+        return true;
+    }
+
+    if (message.action === 'fetchCoinInsights') {
+        handleListEndpointRequest(message, sendResponse, { pathSegment: 'insights', cache: insightsCache, featureLabel: 'Insights' });
+        return true;
+    }
 });
 }
 
@@ -181,23 +242,41 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // within COIN_DATA_CACHE_TTL_MS free; to stay well under CoinGecko's free-tier rate limit.
 // It's intentionally just a plain Map, not chrome.storage: MV3 service workers can be evicted
 // when idle, which clears it, but that only costs an occasional extra fetch, not correctness.
+// Shared by the coin-data, news and insights caches below (createTtlCache), since all three are
+// the exact same "keyed Map with a TTL" shape.
 const COIN_DATA_CACHE_TTL_MS = 60 * 1000;
-const coinDataCache = new Map();
 
+function createTtlCache(ttlMs) {
+    const store = new Map();
+    return {
+        get(key, now = Date.now()) {
+            const entry = store.get(key);
+            if (!entry) {
+                return null;
+            }
+            if (now - entry.timestamp > ttlMs) {
+                store.delete(key);
+                return null;
+            }
+            return entry.data;
+        },
+        set(key, data, now = Date.now()) {
+            store.set(key, { data, timestamp: now });
+        }
+    };
+}
+
+const coinDataCache = createTtlCache(COIN_DATA_CACHE_TTL_MS);
+const newsCache = createTtlCache(COIN_DATA_CACHE_TTL_MS);
+const insightsCache = createTtlCache(COIN_DATA_CACHE_TTL_MS);
+
+// Thin wrappers kept for API stability (existing tests/call sites use these names directly).
 function getCachedCoinData(coin, now = Date.now()) {
-    const entry = coinDataCache.get(coin);
-    if (!entry) {
-        return null;
-    }
-    if (now - entry.timestamp > COIN_DATA_CACHE_TTL_MS) {
-        coinDataCache.delete(coin);
-        return null;
-    }
-    return entry.data;
+    return coinDataCache.get(coin, now);
 }
 
 function setCachedCoinData(coin, data, now = Date.now()) {
-    coinDataCache.set(coin, { data, timestamp: now });
+    coinDataCache.set(coin, data, now);
 }
 
 // TradingView's "details" panel now shows the raw ticker as `{BASE}{QUOTE}` (no separator),
@@ -230,7 +309,8 @@ function formatTradingPair(pair) {
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         formatTradingPair, getCachedCoinData, setCachedCoinData, COIN_DATA_CACHE_TTL_MS,
-        buildCoinGeckoFetchOptions, getCoinGeckoBaseUrl,
-        COINGECKO_HTTP_ERROR_MESSAGES, parseCoinGeckoResponse, isValidCoinData
+        buildCoinGeckoFetchOptions, getCoinGeckoBaseUrl, COINGECKO_DEMO_BASE_URL, COINGECKO_PRO_BASE_URL,
+        COINGECKO_HTTP_ERROR_MESSAGES, parseCoinGeckoResponse, isValidCoinData,
+        createTtlCache, newsCache, insightsCache, fetchCoinGeckoJsonArray, handleListEndpointRequest
     };
 }

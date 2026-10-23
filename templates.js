@@ -1,5 +1,6 @@
 // HTML template builders for the GeckoView widget panel. Depends on the helpers in utils.js
-// (escapeHtml, displayPrice, formatCirculatingPercentage) being loaded first — see manifest.json.
+// (escapeHtml, displayPrice, formatCirculatingPercentage, formatDateOrEmpty) being loaded first
+// — see manifest.json.
 //
 // Styling note: this is a fully self-contained design (its own "gv-*" classes and CSS custom
 // properties), not styled by piggybacking on TradingView's own CSS classes. TradingView's class
@@ -141,6 +142,137 @@ function buildGeckoViewStyles() {
                 flex-shrink: 0;
             }
 
+            #crypto-info-geckoview .gv-categories {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 5px;
+                margin-top: 10px;
+            }
+
+            #crypto-info-geckoview .gv-category {
+                font-size: 11px;
+                color: var(--gv-text-muted);
+                background: var(--gv-pill-bg);
+                border-radius: 10px;
+                padding: 2px 8px;
+            }
+
+            #crypto-info-geckoview .gv-category--more {
+                font-style: italic;
+            }
+
+            #crypto-info-geckoview .gv-tabs {
+                display: flex;
+                gap: 14px;
+                margin: 14px 0 10px;
+                border-bottom: 1px solid var(--gv-border);
+            }
+
+            #crypto-info-geckoview .gv-tab {
+                appearance: none;
+                background: none;
+                border: none;
+                border-bottom: 2px solid transparent;
+                padding: 0 0 7px;
+                margin: 0;
+                font: inherit;
+                font-size: 12px;
+                font-weight: 600;
+                color: var(--gv-text-muted);
+                cursor: pointer;
+            }
+
+            #crypto-info-geckoview .gv-tab:hover {
+                color: var(--gv-text);
+            }
+
+            #crypto-info-geckoview .gv-tab--active {
+                color: var(--gv-text);
+                border-bottom-color: var(--gv-accent);
+            }
+
+            #crypto-info-geckoview .gv-upsell {
+                padding: 16px 0;
+                text-align: center;
+            }
+
+            #crypto-info-geckoview .gv-upsell p {
+                margin: 0 0 8px;
+                font-size: 12px;
+                color: var(--gv-text-muted);
+            }
+
+            #crypto-info-geckoview .gv-upsell a {
+                color: var(--gv-accent);
+                font-size: 12px;
+                text-decoration: none;
+            }
+
+            #crypto-info-geckoview .gv-upsell a:hover {
+                text-decoration: underline;
+            }
+
+            #crypto-info-geckoview .gv-empty-state {
+                font-size: 12px;
+                color: var(--gv-text-muted);
+                padding: 16px 0;
+                margin: 0;
+                text-align: center;
+            }
+
+            #crypto-info-geckoview .gv-news-list,
+            #crypto-info-geckoview .gv-insights-list {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            #crypto-info-geckoview .gv-news-item {
+                display: block;
+                text-decoration: none;
+                color: inherit;
+                padding-bottom: 10px;
+                border-bottom: 1px solid var(--gv-border);
+            }
+
+            #crypto-info-geckoview .gv-news-item:last-child,
+            #crypto-info-geckoview .gv-insight-item:last-child {
+                border-bottom: none;
+                padding-bottom: 0;
+            }
+
+            #crypto-info-geckoview .gv-news-item__title,
+            #crypto-info-geckoview .gv-insight-item__title {
+                display: block;
+                font-size: 12.5px;
+                font-weight: 600;
+                color: var(--gv-text);
+                margin-bottom: 2px;
+            }
+
+            #crypto-info-geckoview .gv-news-item:hover .gv-news-item__title {
+                color: var(--gv-accent);
+            }
+
+            #crypto-info-geckoview .gv-news-item__meta,
+            #crypto-info-geckoview .gv-insight-item__meta {
+                display: block;
+                font-size: 11px;
+                color: var(--gv-text-muted);
+            }
+
+            #crypto-info-geckoview .gv-insight-item {
+                padding-bottom: 10px;
+                border-bottom: 1px solid var(--gv-border);
+            }
+
+            #crypto-info-geckoview .gv-insight-item__desc {
+                font-size: 12px;
+                color: var(--gv-text);
+                margin: 0 0 2px;
+                line-height: 1.4;
+            }
+
             #crypto-info-geckoview .gv-section-title {
                 font-size: 11px;
                 font-weight: 600;
@@ -258,13 +390,21 @@ function buildHtmlErrorResponse(data) {
         `;
 }
 
+// The spinner alone, with no header - used both for the full-widget loading state below and for
+// loading just a tab's content area (content.js swaps this into #gv-tab-content on tab click).
+function buildLoaderFragment() {
+    return `
+        <div class="gv-loader-wrap">
+            <div class="gv-loader"></div>
+        </div>
+    `;
+}
+
 function buildLoaderHtmlResponse() {
     return `
         ${buildGeckoViewStyles()}
         ${buildWidgetHeader()}
-        <div class="gv-loader-wrap">
-            <div class="gv-loader"></div>
-        </div>
+        ${buildLoaderFragment()}
     `;
 }
 
@@ -286,13 +426,120 @@ function isStatVisible(settings, key) {
     return !settings || settings[key] !== false;
 }
 
-function buildHtmlResponse(data, settings) {
+// A coin can have anywhere from 0 to 20+ categories (CoinGecko's `categories` field, included by
+// default in /coins/{id} - no extra API call). Cap how many pills render so one heavily-tagged
+// coin can't blow out the widget's height; '' (hidden section entirely) when there are none.
+const GV_MAX_VISIBLE_CATEGORIES = 6;
+
+function buildCategoriesRow(categories) {
+    const clean = Array.isArray(categories) ? categories.filter(c => typeof c === 'string' && c.trim()) : [];
+    if (clean.length === 0) {
+        return '';
+    }
+
+    const visible = clean.slice(0, GV_MAX_VISIBLE_CATEGORIES);
+    const remaining = clean.length - visible.length;
+    const pills = visible.map(c => `<span class="gv-category">${escapeHtml(c)}</span>`).join('');
+    const more = remaining > 0 ? `<span class="gv-category gv-category--more">+${remaining} more</span>` : '';
+
+    return `
+        <div class="gv-categories">${pills}${more}</div>`;
+}
+
+// The pill-tab nav content.js wires click handling onto (event delegation on #crypto-info-geckoview,
+// which persists across re-renders - see content.js). Tabs beyond "stats" are rendered lazily:
+// their content isn't fetched until clicked, so only their nav button is built here.
+const GV_TABS = [
+    { id: 'stats', label: 'Key stats' },
+    { id: 'news', label: 'News' },
+    { id: 'insights', label: 'Insights' }
+];
+
+function buildTabsNav(activeTab) {
+    const tabs = GV_TABS.map(tab => `<button type="button" class="gv-tab${tab.id === activeTab ? ' gv-tab--active' : ''}" data-gv-tab="${tab.id}">${escapeHtml(tab.label)}</button>`).join('');
+    return `
+        <div class="gv-tabs" role="tablist">${tabs}</div>`;
+}
+
+// Shown in a tab's content area instead of fetching when the user doesn't have a paid CoinGecko
+// key configured (News/Insights require the Analyst/Lite/Pro/Enterprise plans - see
+// https://docs.coingecko.com/reference/news and https://docs.coingecko.com/reference/insights).
+// content.js checks this client-side before ever sending a fetchCoinNews/fetchCoinInsights
+// message, so a non-Pro user never wastes a doomed request on it.
+function buildProUpsell(featureLabel) {
+    return `
+        <div class="gv-upsell">
+            <p>${escapeHtml(featureLabel)} requires a paid CoinGecko plan (Analyst, Lite, Pro, or Enterprise).</p>
+            <a href="https://www.coingecko.com/en/api/pricing" target="_blank">See CoinGecko plans</a>
+        </div>`;
+}
+
+function buildNewsTabContent(items) {
+    if (!Array.isArray(items) || items.length === 0) {
+        return `<p class="gv-empty-state">No recent news for this coin.</p>`;
+    }
+
+    const rows = items.map(item => {
+        const meta = [item.source_name, formatDateOrEmpty(item.posted_at)].filter(Boolean).join(' · ');
+        return `
+            <a class="gv-news-item" href="${escapeHtml(item.url)}" target="_blank">
+                <span class="gv-news-item__title">${escapeHtml(item.title)}</span>
+                <span class="gv-news-item__meta">${escapeHtml(meta)}</span>
+            </a>`;
+    }).join('');
+
+    return `<div class="gv-news-list">${rows}</div>`;
+}
+
+function buildInsightsTabContent(items) {
+    if (!Array.isArray(items) || items.length === 0) {
+        return `<p class="gv-empty-state">No insights available for this coin.</p>`;
+    }
+
+    const rows = items.map(item => {
+        const postedDate = formatDateOrEmpty(item.posted_at);
+        return `
+            <div class="gv-insight-item">
+                <div class="gv-insight-item__title">${escapeHtml(item.title)}</div>
+                ${item.description ? `<div class="gv-insight-item__desc">${escapeHtml(item.description)}</div>` : ''}
+                ${postedDate ? `<div class="gv-insight-item__meta">${escapeHtml(postedDate)}</div>` : ''}
+            </div>`;
+    }).join('');
+
+    return `<div class="gv-insights-list">${rows}</div>`;
+}
+
+// The "Key stats" tab's content - pulled out of buildHtmlResponse so content.js can re-render just
+// this tab (e.g. switching back from News/Insights) from already-fetched data, with no new fetch.
+function buildKeyStatsTabContent(data, settings) {
     let CFORMAT_USD = new Intl.NumberFormat('en-EN', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 });
     let CFORMAT_NR = new Intl.NumberFormat('en-EN', { minimumFractionDigits: 0 });
 
     const formatUsdOrNA = (value) => (value === null || value === undefined) ? 'N/A' : CFORMAT_USD.format(value);
     const formatNumberOrNA = (value) => (value === null || value === undefined) ? 'N/A' : CFORMAT_NR.format(value);
 
+    const marketData = data.market_data || {};
+    const circulatingPercentage = formatCirculatingPercentage(marketData.circulating_supply, marketData.total_supply);
+
+    const statRows = [
+        isStatVisible(settings, 'showMarketCap') && buildStatRow('Market cap', formatUsdOrNA(marketData.market_cap && marketData.market_cap.usd)),
+        isStatVisible(settings, 'showFullyDilutedValuation') && buildStatRow('Fully diluted valuation', formatUsdOrNA(marketData.fully_diluted_valuation && marketData.fully_diluted_valuation.usd)),
+        isStatVisible(settings, 'showTotalVolume') && buildStatRow('24h total volume', formatUsdOrNA(marketData.total_volume && marketData.total_volume.usd)),
+        isStatVisible(settings, 'showTotalSupply') && buildStatRow('Total supply', formatNumberOrNA(marketData.total_supply)),
+        isStatVisible(settings, 'showCirculatingSupply') && buildStatRow('Circulating supply', `${formatNumberOrNA(marketData.circulating_supply)}${circulatingPercentage}`),
+        isStatVisible(settings, 'showAthAtl') && buildStatRow('ATL / ATH', `${displayPrice(marketData.atl && marketData.atl.usd)} / ${displayPrice(marketData.ath && marketData.ath.usd)}`)
+    ].filter(Boolean).join('');
+
+    if (!statRows) {
+        return `<p class="gv-empty-state">No stats selected — enable some in the GeckoView popup.</p>`;
+    }
+
+    return `
+        <div class="gv-stats">${statRows}
+        </div>`;
+}
+
+function buildHtmlResponse(data, settings) {
     // CoinGecko can return null/undefined/empty-string/empty-array for any of these, not just ''
     // (background.js validates `data.links` exists before calling this, but defaulting to {} here
     // too costs nothing and means this function alone can never throw on a malformed `data`).
@@ -315,32 +562,20 @@ function buildHtmlResponse(data, settings) {
             ${discord}
         </div>` : ``;
 
-    const circulatingPercentage = formatCirculatingPercentage(data.market_data.circulating_supply, data.market_data.total_supply);
-
-    const statRows = [
-        isStatVisible(settings, 'showMarketCap') && buildStatRow('Market cap', formatUsdOrNA(data.market_data.market_cap.usd)),
-        isStatVisible(settings, 'showFullyDilutedValuation') && buildStatRow('Fully diluted valuation', formatUsdOrNA(data.market_data.fully_diluted_valuation.usd)),
-        isStatVisible(settings, 'showTotalVolume') && buildStatRow('24h total volume', formatUsdOrNA(data.market_data.total_volume.usd)),
-        isStatVisible(settings, 'showTotalSupply') && buildStatRow('Total supply', formatNumberOrNA(data.market_data.total_supply)),
-        isStatVisible(settings, 'showCirculatingSupply') && buildStatRow('Circulating supply', `${formatNumberOrNA(data.market_data.circulating_supply)}${circulatingPercentage}`),
-        isStatVisible(settings, 'showAthAtl') && buildStatRow('ATL / ATH', `${displayPrice(data.market_data.atl.usd)} / ${displayPrice(data.market_data.ath.usd)}`)
-    ].filter(Boolean).join('');
-
-    const statsSection = statRows ? `
-        <div class="gv-section-title">Key stats</div>
-        <div class="gv-stats">${statRows}
-        </div>` : ``;
-
     return `
         ${buildGeckoViewStyles()}
         ${buildWidgetHeader({
-            image: data.image.thumb,
+            image: data.image && data.image.thumb,
             id: data.id,
             name: data.name,
-            symbol: data.symbol.toUpperCase(),
+            symbol: (data.symbol || '').toUpperCase(),
             rank: data.market_cap_rank
         })}
         ${linksRow}
-        ${statsSection}
+        ${buildCategoriesRow(data.categories)}
+        ${buildTabsNav('stats')}
+        <div class="gv-tab-content" id="gv-tab-content">
+            ${buildKeyStatsTabContent(data, settings)}
+        </div>
     `;
 }

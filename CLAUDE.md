@@ -28,14 +28,19 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
   `COINGECKO_HTTP_ERROR_MESSAGES`/`parseCoinGeckoResponse`), and sends the
   result back via `sendResponse`. The `chrome.runtime.onMessage.addListener`
   registration is guarded with `typeof chrome !== 'undefined'` so the file
-  can also be `require()`'d from the Node test runner. Pure/testable pieces
-  (`formatTradingPair`, the cache, the API key/URL/error helpers) are
+  can also be `require()`'d from the Node test runner. Also handles
+  `fetchCoinNews`/`fetchCoinInsights` (see the Categories/tabs architecture
+  note) via a shared `handleListEndpointRequest()` helper and a generic
+  `createTtlCache()` factory (the same TTL-`Map` shape as the coin-data
+  cache, reused for `newsCache`/`insightsCache`). Pure/testable pieces
+  (`formatTradingPair`, the caches, the API key/URL/error helpers) are
   exported via a `typeof module !== 'undefined'` guard for the same reason
   (no-op in the browser).
 - `utils.js` — Small, dependency-free pure helpers shared by `templates.js`
   and `content.js`: `sleep`, `calculatePercentageOfTotal`,
-  `formatCirculatingPercentage`, `escapeHtml`, `displayPrice`. Also exported
-  via a `typeof module` guard for Node tests.
+  `formatCirculatingPercentage`, `escapeHtml`, `displayPrice`,
+  `formatDateOrEmpty` (news/insights timestamps). Also exported via a
+  `typeof module` guard for Node tests.
 - `settings.js` — Settings schema (`GV_DEFAULT_SETTINGS`, `GV_STAT_OPTIONS`)
   and `chrome.storage.sync` helpers (`getGeckoViewSettings`,
   `setGeckoViewSetting`, `watchGeckoViewSettings`). Includes `apiKey` (string,
@@ -51,10 +56,16 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
   (`buildHtmlHeaderResponse`, `buildHtmlErrorResponse`,
   `buildLoaderHtmlResponse`, `buildHtmlResponse`), sharing one
   `buildWidgetHeader(coin)` helper for the header/CoinGecko-link markup common
-  to all four states. `buildHtmlResponse(data, settings)` uses
-  `isStatVisible()`/`buildStatRow()` to conditionally include each Key
-  stats row based on `settings` (see `settings.js`); omitting `settings`
-  entirely shows every stat, so existing callers/tests are unaffected.
+  to all four states. `buildHtmlResponse(data, settings)` renders the coin
+  header, social links, `buildCategoriesRow()` (CoinGecko's `categories`
+  array, capped at `GV_MAX_VISIBLE_CATEGORIES` with a "+N more" indicator —
+  see the Categories/tabs architecture note), `buildTabsNav('stats')`, and
+  the "Key stats" tab's content via `buildKeyStatsTabContent()`
+  (`isStatVisible()`/`buildStatRow()` conditionally include each row based
+  on `settings`, see `settings.js`; omitting `settings` shows every stat).
+  `buildNewsTabContent()`/`buildInsightsTabContent()`/`buildProUpsell()`
+  render the other two tabs, called lazily from `content.js` on tab click,
+  not from `buildHtmlResponse()` itself.
 - `content.js` — Runs on TradingView chart pages. Reads settings on load via
   `getGeckoViewSettings()` and bails out entirely if `enabled` is false (the
   master toggle only takes effect on page load/refresh). Otherwise watches
@@ -64,9 +75,11 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
   `templates.js`, passing the current settings through so stat visibility
   matches the popup. Also calls `watchGeckoViewSettings()` to re-render
   immediately when a per-stat toggle changes in the popup, without needing a
-  refresh (cheap since it just hits the `background.js` cache). Contains
-  only DOM-watching/orchestration logic — no HTML templates or pure
-  utilities live here.
+  refresh (cheap since it just hits the `background.js` cache). Attaches one
+  delegated click listener on the widget's root div (survives re-renders,
+  since only its `innerHTML` is reassigned) to drive `renderTab()` — see the
+  Categories/tabs architecture note. Contains only DOM-watching/orchestration
+  logic — no HTML templates or pure utilities live here.
 - `popup.html` / `popup.js` — The toolbar popup, now a real settings UI: a
   master "Show on TradingView" toggle, one checkbox per `GV_STAT_OPTIONS`
   entry (built dynamically, so adding a stat option only requires touching
@@ -76,15 +89,29 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
   under sync quotas). MV3's popup CSP disallows inline `<script>`, so all
   logic lives in `popup.js`, loaded after `settings.js`.
 - `icon-16.png` / `icon-48.png` / `icon-128.png` — extension icons.
-- `test/` — Node (`node:test`) unit tests for the pure functions in
-  `utils.js`; for `formatTradingPair`, the response cache, the API
-  key/base-URL helpers, and `parseCoinGeckoResponse`'s HTTP-error mapping
-  in `background.js`; and a schema-consistency check for `settings.js`
+- `test/` — Node (`node:test`) unit tests for: the pure functions in
+  `utils.js`; `formatTradingPair`, the response caches, the API
+  key/base-URL helpers, and `parseCoinGeckoResponse`'s HTTP-error mapping in
+  `background.js`; a schema-consistency check for `settings.js`
   (`GV_DEFAULT_SETTINGS`/`GV_STAT_OPTIONS` keys must match both ways,
-  catching a popup checkbox with no default or vice versa). Run with
-  `npm test` (or `node --test`). No DOM/`chrome.*`/HTML-template logic is
-  tested here — that would need a browser/DOM harness, which this project
-  doesn't have.
+  catching a popup checkbox with no default or vice versa); the pure
+  string-building functions in `templates.js` (`templates.test.js` — loads
+  `utils.js` + `templates.js` together into one `vm.createContext` sandbox,
+  since `templates.js` expects `utils.js`'s helpers as globals the same way
+  the real content-script load order provides them; function declarations
+  land on the sandbox object, so `T.buildXyz(...)` works even though the
+  internal `const`s they close over don't need to be re-exposed); and the
+  full `fetchCoinNews`/`fetchCoinInsights` message-handling flow in
+  `background.js` (`newsInsights.test.js` — same VM-sandbox technique, with
+  `chrome.storage`/`fetch` mocked, exercising the real handler instead of a
+  reimplementation of it). Run with `npm test` (or `node --test`). What's
+  still *not* tested here: `content.js`'s DOM-watching/click-wiring logic
+  itself (not the templates it calls) — that would need a real browser/DOM,
+  not just a VM sandbox. If you change that wiring, verify manually with a
+  mock TradingView DOM + mocked `chrome.*` (fake `.widgetbar-page.active`,
+  `#header-toolbar-symbol-search`, `data-qa-id` elements, and a
+  `chrome.runtime.sendMessage` that simulates `background.js`'s responses)
+  rather than assuming it works from the template tests alone.
 - `package.json` — `private: true`, no runtime dependencies; exists only to
   define the `test` script. Still no bundler/build step for the extension
   itself — `content_scripts` are loaded as classic scripts.
@@ -206,6 +233,35 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
   not `chrome.storage`: the cache is allowed to be lost when the MV3
   service worker is evicted (idle), that just costs one extra fetch, not a
   correctness issue, so a plain `Map` is simpler and sufficient.
+- **Categories row + News/Insights tabs.** `data.categories` (plain string
+  array, included by default in `/coins/{id}` — no extra API call) can be
+  anywhere from empty to 20+ entries; `buildCategoriesRow()` hides the whole
+  row for zero, and caps rendering at `GV_MAX_VISIBLE_CATEGORIES` (6) with a
+  "+N more" pill so one heavily-tagged coin can't blow out the widget's
+  height. The widget has three tabs (`GV_TABS` in `templates.js`): "Key
+  stats" (always available, rendered from the already-fetched coin data,
+  no extra fetch), "News", and "Insights"
+  (https://docs.coingecko.com/reference/news,
+  https://docs.coingecko.com/reference/insights). **News/Insights require a
+  paid CoinGecko plan** (Analyst/Lite/Pro/Enterprise — not Demo, not
+  keyless) and only exist on the Pro host; `content.js` checks
+  `apiKeyType === 'pro'` client-side before ever sending a
+  `fetchCoinNews`/`fetchCoinInsights` message, showing `buildProUpsell()`
+  instead for anyone else, so a non-Pro user's click never fires a doomed
+  request. For Pro users, the tab's content is fetched lazily (only on
+  first click, not with the main coin data) via
+  `handleListEndpointRequest()` in `background.js`, which always targets
+  `COINGECKO_PRO_BASE_URL` with the `x-cg-pro-api-key` header regardless of
+  the user's `apiKeyType` setting (defense in depth — `content.js` already
+  gated this, but a stale/raced settings read reaching `background.js`
+  shouldn't be able to misfire against the wrong host) and caches results
+  per coin id in `newsCache`/`insightsCache`
+  (`createTtlCache(COIN_DATA_CACHE_TTL_MS)`, same TTL as coin data) so
+  flipping tabs back and forth doesn't re-fetch. `content.js` tracks
+  `currentCoinData`/`activeTab` at module scope and guards the async
+  response against staleness (`activeTab !== tabId || currentCoinData.id
+  !== coinId`) so a slow News/Insights response can't render over a symbol
+  the user has since navigated away from.
 - **Untrusted data rendered via `innerHTML`.** All CoinGecko response fields
   (`data.name`, `data.symbol`, `data.id`, `data.image.thumb`, social links,
   etc.) are interpolated directly into HTML strings and assigned via
@@ -237,9 +293,10 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
 
 - No linter or CI configured yet (tests, license, and `host_permissions` were
   added; linting was left optional and hasn't been set up).
-- Only the pure helper functions have test coverage — the DOM-watching logic
-  in `content.js` and the HTML templates in `templates.js` are untested
-  (would need a browser/DOM test harness).
+- `content.js`'s DOM-watching/click-wiring logic itself is still untested
+  (would need a browser/DOM harness) — though the template functions it
+  calls, and the `background.js` message handlers it talks to, both do have
+  real `node:test` coverage now (see the `test/` file-map entry above).
 - Coupling to TradingView's internal DOM (`data-qa-id` attributes) is
   inherent to how this extension works and not fixable from this side —
   it's just less fragile now than the hashed CSS classes it used to depend
