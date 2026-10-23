@@ -9,8 +9,12 @@ Welcome to **GeckoView**! GeckoView is a Chrome extension designed to seamlessly
 ## Features
 
 - **Key Statistics**: Instantly view crucial metrics such as market cap, fully diluted valuation, 24-hour total volume, total supply, circulating supply, and all-time high and low prices.
+- **Exchanges**: See the top exchanges trading the selected coin, ranked by volume with major exchanges prioritized — click one to jump straight to that pair's chart.
+- **News & Insights**: Browse the latest news and analysis for the selected coin (requires a CoinGecko Pro API key).
+- **Trending**: An always-available tab showing CoinGecko's current top trending coins, with one click to jump to that coin's chart.
 - **Social Media Links**: Easily access the official Twitter, Discord, and Telegram channels of the selected coin, as well as its official website.
 - **Quick Navigation**: Direct link to CoinGecko's page for the selected coin for more in-depth information.
+- **Customizable Settings**: Toggle which stats and the categories row are shown, auto-close TradingView's ad-blocker popup, and optionally add your own CoinGecko API key for a higher rate limit.
 - **User-Friendly Interface**: Simple and intuitive design that integrates smoothly with TradingView, providing a seamless user experience.
 
 ## Download
