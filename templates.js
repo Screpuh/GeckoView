@@ -294,10 +294,13 @@ function buildHtmlResponse(data, settings) {
     const formatNumberOrNA = (value) => (value === null || value === undefined) ? 'N/A' : CFORMAT_NR.format(value);
 
     // CoinGecko can return null/undefined/empty-string/empty-array for any of these, not just ''
-    const twitterHandle = data.links.twitter_screen_name;
-    const homepageUrl = data.links.homepage && data.links.homepage[0];
-    const telegramId = data.links.telegram_channel_identifier;
-    const discordUrl = data.links.chat_url && data.links.chat_url[0];
+    // (background.js validates `data.links` exists before calling this, but defaulting to {} here
+    // too costs nothing and means this function alone can never throw on a malformed `data`).
+    const links = data.links || {};
+    const twitterHandle = links.twitter_screen_name;
+    const homepageUrl = links.homepage && links.homepage[0];
+    const telegramId = links.telegram_channel_identifier;
+    const discordUrl = links.chat_url && links.chat_url[0];
 
     const twitter = twitterHandle ? `<a target="_blank" href="https://x.com/${escapeHtml(twitterHandle)}">${GV_ICON_X} Twitter</a>` : ``;
     const homepage = homepageUrl ? `<a target="_blank" href="${escapeHtml(homepageUrl)}">${GV_ICON_WEBSITE} Website</a>` : ``;

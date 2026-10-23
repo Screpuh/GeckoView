@@ -173,6 +173,23 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
   checks the `isGeckoViewError` tag to tell "one of our friendly messages"
   apart from a raw network/fetch failure (offline, DNS, CORS) and only
   shows its own generic connectivity message for the latter.
+- **Three-layer defense against a malformed "successful" CoinGecko
+  response.** Not every CoinGecko error body carries the top-level `error`
+  field the rest of this code checks for (e.g. an unmapped HTTP status like
+  a plain 400 can come back as `{status: {error_code, error_message}}`
+  instead) — that used to get treated as a successful coin lookup, cached,
+  and sent to `content.js`, which crashed deep inside `buildHtmlResponse()`
+  (`templates.js`) reading e.g. `data.links.twitter_screen_name`, leaving
+  the widget stuck on its loading spinner forever (the crash happened
+  *before* `geckoViewDiv.innerHTML` was reassigned). Fixed at three levels,
+  deliberately redundant: (1) `isValidCoinData()` in `background.js` gates
+  every "success" `sendResponse()`/cache write on the response actually
+  looking like a coin (`id`/`market_data`/`links` all present, no `error`
+  field); (2) `buildHtmlResponse()` defaults `data.links` to `{}` so it
+  can't throw on that field even if something malformed still gets
+  through; (3) `content.js` wraps the `buildHtmlResponse()` call in
+  try/catch and falls back to a proper error message, as a general safety
+  net for *any* future rendering exception, not just this one.
 - **No auto-refresh/polling.** Data only refreshes on symbol change (the
   existing `MutationObserver` behavior), never on a timer — CoinGecko's
   free tier rate-limits aggressively, and this extension deliberately stays

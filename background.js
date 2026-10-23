@@ -65,6 +65,14 @@ function parseCoinGeckoResponse(response) {
     });
 }
 
+// A real /coins/{id} response always has these. Guards against treating some other response
+// shape as a successful coin lookup - e.g. an error body that doesn't carry a top-level `error`
+// field (not every CoinGecko error response does), which would otherwise get cached and sent to
+// the content script as "success", crashing templates.js deep inside buildHtmlResponse().
+function isValidCoinData(data) {
+    return !!data && !data.error && typeof data.id === 'string' && !!data.market_data && !!data.links;
+}
+
 // The chrome.* APIs only exist in the extension runtime, not in the Node test runner,
 // so this registration is skipped there (see test/formatTradingPair.test.js).
 if (typeof chrome !== 'undefined') {
@@ -107,8 +115,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                                             return fetch(`${baseUrl}/coins/${newCoinId}`, fetchOptions)
                                                 .then(parseCoinGeckoResponse)
                                                 .then(data => {
-                                                    if (data.error) {
-                                                        sendResponse({ success: false, error: data.error });
+                                                    if (!isValidCoinData(data)) {
+                                                        sendResponse({ success: false, error: data.error || 'CoinGecko returned an unexpected response. Please try again.' });
                                                         return;
                                                     }
 
@@ -120,8 +128,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                                             return fetch(`${baseUrl}/coins/${newCoinId}`, fetchOptions)
                                                 .then(parseCoinGeckoResponse)
                                                 .then(data => {
-                                                    if (data.error) {
-                                                        sendResponse({ success: false, error: data.error });
+                                                    if (!isValidCoinData(data)) {
+                                                        sendResponse({ success: false, error: data.error || 'CoinGecko returned an unexpected response. Please try again.' });
                                                         return;
                                                     }
 
@@ -141,6 +149,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     sendResponse({ success: false, error: data.error });
                     return;
                 }
+
+                if (!isValidCoinData(data)) {
+                    sendResponse({ success: false, error: 'CoinGecko returned an unexpected response. Please try again.' });
+                    return;
+                }
+
                 setCachedCoinData(coin, data);
                 sendResponse({ success: true, data });
             }).catch(error => {
@@ -217,6 +231,6 @@ if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         formatTradingPair, getCachedCoinData, setCachedCoinData, COIN_DATA_CACHE_TTL_MS,
         buildCoinGeckoFetchOptions, getCoinGeckoBaseUrl,
-        COINGECKO_HTTP_ERROR_MESSAGES, parseCoinGeckoResponse
+        COINGECKO_HTTP_ERROR_MESSAGES, parseCoinGeckoResponse, isValidCoinData
     };
 }

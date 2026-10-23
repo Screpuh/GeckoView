@@ -119,8 +119,15 @@ function updateCryptoContent() {
                     return;
                 }
 
-                const test =  buildHtmlResponse(response.data, geckoViewSettings);
-                geckoViewDiv.innerHTML = test;
+                // Guards against any unexpected/malformed CoinGecko response shape reaching the
+                // templates: without this, a thrown error here happens *before* geckoViewDiv.innerHTML
+                // is reassigned, leaving the widget stuck on the loading spinner forever instead of
+                // showing an error.
+                try {
+                    geckoViewDiv.innerHTML = buildHtmlResponse(response.data, geckoViewSettings);
+                } catch (renderError) {
+                    geckoViewDiv.innerHTML = buildHtmlErrorResponse({ error: 'Could not display this coin’s data (unexpected response format).' });
+                }
 
             });
         } catch (error) {
