@@ -23,10 +23,12 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
 - `background.js` — Service worker. `importScripts('settings.js')` (guarded
   for Node, where `importScripts` doesn't exist) pulls in
   `getGeckoViewSettings` for the API key. Listens for a `fetchCoinData`
-  message from the content script, calls the CoinGecko API (`/coins/{id}`,
-  falling back to `/search?query=` when the direct lookup 404s) against
-  whichever host/header the user's `apiKey`/`apiKeyType` settings resolve to
-  (see `getCoinGeckoBaseUrl`/`buildCoinGeckoFetchOptions`), maps the HTTP
+  message from the content script, resolves the ticker to a coin via
+  `/search?query={ticker}` and `pickBestCoinSearchMatch()` (see its own
+  architecture note below for why this is always a search, never a direct
+  `/coins/{ticker}` id guess) against whichever host/header the user's
+  `apiKey`/`apiKeyType` settings resolve to (see
+  `getCoinGeckoBaseUrl`/`buildCoinGeckoFetchOptions`), maps the HTTP
   error statuses CoinGecko's docs call out to friendly messages (see
   `COINGECKO_HTTP_ERROR_MESSAGES`/`parseCoinGeckoResponse`), and sends the
   result back via `sendResponse`. The `chrome.runtime.onMessage.addListener`
@@ -121,10 +123,16 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
   full `fetchCoinNews`/`fetchCoinInsights` message-handling flow in
   `background.js` (`newsInsights.test.js` — same VM-sandbox technique, with
   `chrome.storage`/`fetch` mocked, exercising the real handler instead of a
-  reimplementation of it); and the `fetchTrending` message-handling flow,
+  reimplementation of it); the `fetchTrending` message-handling flow,
   same technique again (`trending.test.js`, including that it correctly
   unwraps `/search/trending`'s `coins[].item` wrapper shape into a plain
-  coin array). Run with `npm test` (or `node --test`). What's
+  coin array); `pickBestCoinSearchMatch()`
+  (`pickBestCoinSearchMatch.test.js` — plain `require()`, no VM sandbox
+  needed, it's a pure function); and the full `fetchCoinData` message flow
+  (`coinData.test.js`, same VM-sandbox technique, covering the real
+  Dogecoin/WOO Network bug directly — an unranked, unrelated same-symbol
+  coin present alongside the real one in the search results must not win).
+  Run with `npm test` (or `node --test`). What's
   still *not* tested here: `content.js`'s DOM-watching/click-wiring logic
   itself (not the templates it calls) — that would need a real browser/DOM,
   not just a VM sandbox. If you change that wiring, verify manually with a
@@ -180,6 +188,40 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
   `QUOTE_CURRENCY_SUFFIXES` list (ordered so e.g. `BUSD` is checked before
   the `USD` it ends with). New quote currencies CoinGecko-listed coins trade
   against may need adding to that list.
+- **Resolving a ticker to a coin always goes through `/search?query=`, never
+  a direct `/coins/{ticker}` id guess.** An earlier version tried
+  `/coins/{ticker}` first as a "fast path" (CoinGecko's `id` sometimes
+  happens to equal the lowercased ticker), falling back to `/search` only on
+  a 404 "coin not found". That guess is wrong for most coins anyway —
+  confirmed live that `/coins/btc`, `/coins/eth`, and `/coins/sol` all 404 as
+  ids, which was harmless since the 404 correctly fell through to search.
+  But when the guess *did* happen to resolve, it was trusted completely with
+  no further check — and CoinGecko's `id` is an arbitrary per-listing slug,
+  not guaranteed to belong to the well-known coin with that ticker, so an
+  obscure, unrelated coin can end up owning an id string that collides with
+  a totally different, far more prominent coin's symbol. Confirmed live for
+  two real cases: `/coins/doge` resolves to an unranked token literally
+  named "@DOGE" (CoinGecko id `doge`), not Dogecoin (id `dogecoin`, rank 12);
+  `/coins/woo` resolves to an unranked token named "ウー", not WOO Network
+  (id `woo-network`, rank ~840) — both selected with zero error, so the
+  search fallback never even ran. Fixed by removing the id guess entirely:
+  every lookup now calls `/search?query={ticker}`, then
+  `pickBestCoinSearchMatch()` (background.js) picks the best candidate among
+  results whose own symbol *or* name actually matches the ticker (not just
+  whichever happens to come first in the response), preferring the one with
+  the best (lowest) `market_cap_rank` — an unranked result is treated as
+  worse than any ranked one. This still works within the same inherent
+  constraint as before: TradingView's DOM gives this extension nothing more
+  identifying than the raw ticker text, so "best-ranked same-ticker search
+  result" is the strongest available signal for "the coin this ticker
+  actually, usually means" — it isn't foolproof (a legitimately prominent
+  coin could theoretically still share a ticker with an even more prominent
+  one under a different name entirely, which no ticker-based matching could
+  resolve), but it directly fixes both confirmed cases and the general class
+  of bug they represent. The one extra request this costs (versus the rare
+  case the old id guess "worked") is bounded by the existing per-ticker
+  `coinDataCache` (60s TTL) the same way as before — repeat views of the
+  same coin don't re-fetch regardless.
 - **`host_permissions` declared for both CoinGecko hosts.** The background
   fetch also happens to work without this (CoinGecko's API sends permissive
   CORS headers), but declaring `api.coingecko.com` and `pro-api.coingecko.com`

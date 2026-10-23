@@ -32,9 +32,8 @@ function buildCoinGeckoFetchOptions(apiKey, apiKeyType) {
 
 // Friendly messages for the HTTP status codes CoinGecko's docs call out as meaningful
 // (https://docs.coingecko.com/docs/errors-and-rate-limits). Anything not listed here (including
-// 404, which /coins/{id} uses for "coin not found" - an expected signal that triggers the search
-// fallback below, not a real error) falls through to the existing response-body-based handling
-// unchanged.
+// 404, which /coins/{id} uses for "coin not found" when a coin id turns out not to exist) falls
+// through to the existing response-body-based handling unchanged.
 const COINGECKO_HTTP_ERROR_MESSAGES = {
     401: 'Your CoinGecko API key looks invalid, or doesn’t match the key type selected in the GeckoView popup (Demo keys need "Demo", Pro keys need "Pro").',
     403: 'CoinGecko blocked this request. If you’re using an API key, double-check it and its key type in the GeckoView popup.',
@@ -334,81 +333,55 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             const fetchOptions = buildCoinGeckoFetchOptions(settings.apiKey, settings.apiKeyType);
             const baseUrl = getCoinGeckoBaseUrl(settings.apiKeyType);
 
-            fetch(`${baseUrl}/coins/${coin}`, fetchOptions)
-            .then(parseCoinGeckoResponse)
-            .then(data => {
-                if (data.error) {
-                    if (data.error === 'coin not found') {
-                        // Try searching by name
-                        return fetch(`${baseUrl}/search?query=${coin}`, fetchOptions)
-                            .then(parseCoinGeckoResponse)
-                            .then(data => {
-                                if (data.error) {
-                                    sendResponse({ success: false, error: data.error });
-                                    return;
-                                }
-
-                                if (data.coins.length === 0) {
-                                    sendResponse({ success: false, error: 'No search results found' });
-                                    return;
-                                } else {
-                                    for(let i = 0; i < data.coins.length; i++) {
-                                        if(data.coins[i].symbol.toLowerCase() == coin) {
-                                            const newCoinId = data.coins[i].api_symbol;
-                                            return fetch(`${baseUrl}/coins/${newCoinId}`, fetchOptions)
-                                                .then(parseCoinGeckoResponse)
-                                                .then(data => {
-                                                    if (!isValidCoinData(data)) {
-                                                        sendResponse({ success: false, error: data.error || 'CoinGecko returned an unexpected response. Please try again.' });
-                                                        return;
-                                                    }
-
-                                                    setCachedCoinData(coin, data);
-                                                    sendResponse({ success: true, data });
-                                                });
-                                        } else if (data.coins[i].name.toLowerCase() == coin) {
-                                            const newCoinId = data.coins[i].api_symbol;
-                                            return fetch(`${baseUrl}/coins/${newCoinId}`, fetchOptions)
-                                                .then(parseCoinGeckoResponse)
-                                                .then(data => {
-                                                    if (!isValidCoinData(data)) {
-                                                        sendResponse({ success: false, error: data.error || 'CoinGecko returned an unexpected response. Please try again.' });
-                                                        return;
-                                                    }
-
-                                                    setCachedCoinData(coin, data);
-                                                    sendResponse({ success: true, data });
-                                                });
-                                        }
-                                    }
-
-                                    // none of the search results matched the coin we were looking for
-                                    sendResponse({ success: false, error: 'No matching coin found in search results' });
-                                }
-                            });
+            // Always resolved via /search, never by guessing that the ticker is itself a valid
+            // CoinGecko id (an earlier version of this tried /coins/{ticker} directly first, as a
+            // "fast path"). That guess is wrong for most coins anyway - confirmed live that "btc"/
+            // "eth"/"sol" all 404 as ids - which was harmless since a 404 correctly fell through to
+            // this same search. But when the guess *did* happen to succeed, it was trusted with no
+            // further check, and for "doge" and "woo" it landed on a completely different, obscure,
+            // unranked coin that happened to own that exact id string, instead of the actual
+            // well-known Dogecoin/WOO Network - see pickBestCoinSearchMatch() above for the fix:
+            // search always, then rank candidates by market_cap_rank rather than trusting whichever
+            // result (or id guess) happened to come back first.
+            fetch(`${baseUrl}/search?query=${encodeURIComponent(coin)}`, fetchOptions)
+                .then(parseCoinGeckoResponse)
+                .then(data => {
+                    if (data.error) {
+                        sendResponse({ success: false, error: data.error });
+                        return;
                     }
 
-                    // CoinGecko's own error text (not reached for 'coin not found' - handled above)
-                    sendResponse({ success: false, error: data.error });
-                    return;
-                }
+                    if (!Array.isArray(data.coins) || data.coins.length === 0) {
+                        sendResponse({ success: false, error: 'No search results found' });
+                        return;
+                    }
 
-                if (!isValidCoinData(data)) {
-                    sendResponse({ success: false, error: 'CoinGecko returned an unexpected response. Please try again.' });
-                    return;
-                }
+                    const bestMatch = pickBestCoinSearchMatch(data.coins, coin);
+                    if (!bestMatch) {
+                        sendResponse({ success: false, error: 'No matching coin found in search results' });
+                        return;
+                    }
 
-                setCachedCoinData(coin, data);
-                sendResponse({ success: true, data });
-            }).catch(error => {
-                // Our own HTTP-status-derived messages (coinGeckoError()) are already friendly
-                // and user-facing; anything else is a raw network/parsing failure (offline, DNS,
-                // CORS, etc.) with no useful message of its own.
-                const message = (error && error.isGeckoViewError)
-                    ? error.message
-                    : 'Could not reach CoinGecko. Check your internet connection and try again.';
-                sendResponse({ success: false, error: message });
-            });
+                    return fetch(`${baseUrl}/coins/${bestMatch.api_symbol}`, fetchOptions)
+                        .then(parseCoinGeckoResponse)
+                        .then(coinData => {
+                            if (!isValidCoinData(coinData)) {
+                                sendResponse({ success: false, error: coinData.error || 'CoinGecko returned an unexpected response. Please try again.' });
+                                return;
+                            }
+
+                            setCachedCoinData(coin, coinData);
+                            sendResponse({ success: true, data: coinData });
+                        });
+                }).catch(error => {
+                    // Our own HTTP-status-derived messages (coinGeckoError()) are already friendly
+                    // and user-facing; anything else is a raw network/parsing failure (offline, DNS,
+                    // CORS, etc.) with no useful message of its own.
+                    const message = (error && error.isGeckoViewError)
+                        ? error.message
+                        : 'Could not reach CoinGecko. Check your internet connection and try again.';
+                    sendResponse({ success: false, error: message });
+                });
         });
 
         return true;
@@ -513,14 +486,47 @@ function formatTradingPair(pair) {
         }
     }
 
-    // unknown quote currency - fall back to the full symbol and let the search fallback try
+    // unknown quote currency - fall back to the full symbol and let the search resolve it
     return symbol.toLowerCase();
+}
+
+// Picks the best CoinGecko /search result for a ticker/name, among results that actually match it
+// (case-insensitive, by symbol or name) - preferring the one with the best (lowest) market_cap_rank.
+// This is necessary, not just nice-to-have: confirmed live that multiple unrelated coins can share
+// a symbol or name - e.g. a query for "doge" returns both the real Dogecoin (rank 12) and an
+// unrelated, unranked token that also happens to be named "@DOGE" - so taking whichever result
+// happens to come first isn't reliable, and neither is trusting a direct /coins/{ticker} lookup
+// that happens to succeed (see fetchCoinData's message handler below for why that was tried and
+// abandoned: CoinGecko's "id" is an arbitrary per-listing slug, not necessarily the ticker, and an
+// obscure coin can end up owning an id string that collides with a completely different, far more
+// well-known coin's ticker - confirmed live for both "doge" and "woo"). An unranked result
+// (missing market_cap_rank) is treated as worse than any ranked one. Returns null when `coins`
+// isn't an array, or nothing in it matches `ticker` at all.
+function pickBestCoinSearchMatch(coins, ticker) {
+    if (!Array.isArray(coins)) {
+        return null;
+    }
+
+    const candidates = coins.filter(coin => coin && (
+        (typeof coin.symbol === 'string' && coin.symbol.toLowerCase() === ticker) ||
+        (typeof coin.name === 'string' && coin.name.toLowerCase() === ticker)
+    ));
+
+    if (candidates.length === 0) {
+        return null;
+    }
+
+    return candidates.reduce((best, candidate) => {
+        const bestRank = typeof best.market_cap_rank === 'number' ? best.market_cap_rank : Infinity;
+        const candidateRank = typeof candidate.market_cap_rank === 'number' ? candidate.market_cap_rank : Infinity;
+        return candidateRank < bestRank ? candidate : best;
+    });
 }
 
 // Expose for the Node test runner (no-op in the browser extension context, where `module` is undefined).
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-        formatTradingPair, getCachedCoinData, setCachedCoinData, COIN_DATA_CACHE_TTL_MS,
+        formatTradingPair, pickBestCoinSearchMatch, getCachedCoinData, setCachedCoinData, COIN_DATA_CACHE_TTL_MS,
         buildCoinGeckoFetchOptions, getCoinGeckoBaseUrl, COINGECKO_DEMO_BASE_URL, COINGECKO_PRO_BASE_URL,
         COINGECKO_HTTP_ERROR_MESSAGES, parseCoinGeckoResponse, isValidCoinData,
         createTtlCache, newsCache, insightsCache, exchangesCache, trendingCache,
