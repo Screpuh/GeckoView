@@ -47,23 +47,22 @@ window.onload = function() {
 };
 
 function updateCryptoContent() {
-    const type = document.querySelector('[data-name="details-additional-secondary"]');
-    const target  = document.querySelector('.text-eFCYpbUa');
+    // TradingView's "details" panel is identified by data-qa-id attributes, not the hashed
+    // CSS classes/data-name attributes used elsewhere on the page — those change on every
+    // TradingView frontend build, but these QA hooks have stayed stable across redesigns so far.
+    const type = document.querySelector('[data-qa-id="details-element industry"]');
+    const target = document.querySelector('[data-qa-id="details-element symbol"]');
     const geckoViewDiv = document.querySelector('#crypto-info-geckoview');
 
     if (!geckoViewDiv) {
         return;
     }
 
-    const exchangeElement = document.querySelector('span[data-name="details-exchange"]');
-
     // if the coin we found is a crypto, then we will fetch the data from coingecko
-    if(type && type.textContent == 'Crypto' && target && exchangeElement) {
+    if(type && type.textContent == 'Crypto' && target) {
         geckoViewDiv.innerHTML = buildLoaderHtmlResponse();
 
-        const exchange = exchangeElement.textContent;
-
-        chrome.runtime.sendMessage({ action: 'fetchCoinData', exchange: exchange, coin: target.textContent }, response => {
+        chrome.runtime.sendMessage({ action: 'fetchCoinData', coin: target.textContent }, response => {
             if (!response.success) {
                 const test =  buildHtmlErrorResponse(response);
                 geckoViewDiv.innerHTML = test;

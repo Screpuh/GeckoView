@@ -5,9 +5,7 @@ if (typeof chrome !== 'undefined') {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === 'fetchCoinData') {
 
-        const exchange = message.exchange.toLowerCase();
-        let coin = message.coin;
-        coin = formatTradingPair(coin, exchange);
+        const coin = formatTradingPair(message.coin);
         
         fetch(`https://api.coingecko.com/api/v3/coins/${coin}`)
         .then(response => response.json())
@@ -75,40 +73,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 }
 
 
-// check which exchange to see what format the trading pair is in and return the coin in a format that coingecko can understand
-function formatTradingPair(pair, exchange) {
-    if (['binance', 'binance us', 'bitfinex', 'bitstamp', 'coinbase', 'gemini', 'kraken', 'mexc', 'poloniex', 'kucoin'].includes(exchange)) {
-        let parts = pair.split(' / ');
-        let coin = parts[0].toLowerCase();
+// TradingView's "details" panel now shows the raw ticker as `{BASE}{QUOTE}` (no separator),
+// uniformly across exchanges, optionally with a trailing contract suffix like ".P" for
+// perpetual futures (e.g. "BTCUSDT", "BTCUSDT.P", "ETHEUR"). Strip the contract suffix and the
+// quote currency to recover the base asset ticker CoinGecko understands. Ordered longest-first,
+// and with suffixes that are themselves suffixes of others (e.g. "BUSD" ends in "USD") listed
+// before the shorter one, so the first match found is always the most specific one.
+const QUOTE_CURRENCY_SUFFIXES = [
+    'FDUSD', 'USDT', 'USDC', 'BUSD', 'TUSD', 'DAI',
+    'USD', 'EUR', 'GBP', 'JPY', 'TRY', 'BRL', 'AUD',
+    'BTC', 'ETH', 'BNB'
+];
 
-        coin = coin.replace(' ', '-');
+function formatTradingPair(pair) {
+    // strip a trailing contract-type suffix, e.g. "BTCUSDT.P" (perpetual) -> "BTCUSDT"
+    const symbol = pair.split('.')[0].toUpperCase();
 
-        return coin;
-    } else if (['bybit'].includes(exchange)) {
-        let parts = pair.split(' ');
-        let coin = parts[0].toLowerCase();
-
-        const suffix = 'usdt';
-        if (coin.endsWith(suffix)) {
-            coin = coin.slice(0, -suffix.length);
+    for (const quote of QUOTE_CURRENCY_SUFFIXES) {
+        if (symbol.length > quote.length && symbol.endsWith(quote)) {
+            return symbol.slice(0, -quote.length).toLowerCase();
         }
-
-        return coin;
-    } else if(['cryptocom', 'gateio', 'okx'].includes(exchange)) {
-        let parts = pair.split('/');
-        let coin = parts[0].toLowerCase();
-
-        coin = coin.replace(' ', '-');
-
-        return coin;
-    } else {
-        // we can alway try this as a last resort. most exchanges use this format
-        let parts = pair.split(' / ');
-        let coin = parts[0].toLowerCase();
-
-        return coin;
     }
 
+    // unknown quote currency - fall back to the full symbol and let the search fallback try
+    return symbol.toLowerCase();
 }
 
 // Expose for the Node test runner (no-op in the browser extension context, where `module` is undefined).

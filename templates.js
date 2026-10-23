@@ -1,117 +1,270 @@
 // HTML template builders for the GeckoView widget panel. Depends on the helpers in utils.js
 // (escapeHtml, displayPrice, formatCirculatingPercentage) being loaded first — see manifest.json.
+//
+// Styling note: this is a fully self-contained design (its own "gv-*" classes and CSS custom
+// properties), not styled by piggybacking on TradingView's own CSS classes. TradingView's class
+// names are build-hashed and regenerate on every frontend deploy, so depending on them for
+// styling breaks silently (this happened once already — see git history). The only thing we
+// still read from TradingView is `html[data-theme]` ("light"/"dark"), which has stayed stable
+// across redesigns, to pick a matching color scheme.
+
+// Shared CSS for every widget state (header/loading/error/data). Returned as its own <style>
+// block and included once per render, since each state fully replaces the widget's innerHTML.
+function buildGeckoViewStyles() {
+    return `
+        <style>
+            #crypto-info-geckoview {
+                --gv-text: #131722;
+                --gv-text-muted: #787b86;
+                --gv-border: #e0e3eb;
+                --gv-pill-bg: #f0f3fa;
+                --gv-pill-bg-hover: #e3e9f2;
+                --gv-accent: #2962ff;
+                --gv-danger: #e04b4b;
+                font-family: -apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, Helvetica, Arial, sans-serif;
+                font-size: 13px;
+                line-height: 1.4;
+                color: var(--gv-text);
+                padding: 12px 16px 16px;
+                border-bottom: 1px solid var(--gv-border);
+            }
+
+            html[data-theme="dark"] #crypto-info-geckoview {
+                --gv-text: #d1d4dc;
+                --gv-text-muted: #868993;
+                --gv-border: #2a2e39;
+                --gv-pill-bg: #2a2e39;
+                --gv-pill-bg-hover: #363a45;
+            }
+
+            #crypto-info-geckoview * {
+                box-sizing: border-box;
+            }
+
+            #crypto-info-geckoview .gv-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 8px;
+            }
+
+            #crypto-info-geckoview .gv-header__identity {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                min-width: 0;
+            }
+
+            #crypto-info-geckoview .gv-header__title {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 14px;
+                font-weight: 600;
+                color: var(--gv-text);
+                text-decoration: none;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            #crypto-info-geckoview .gv-header__title:hover {
+                color: var(--gv-accent);
+            }
+
+            #crypto-info-geckoview .gv-header__logo {
+                width: 20px;
+                height: 20px;
+                border-radius: 50%;
+                flex-shrink: 0;
+            }
+
+            #crypto-info-geckoview .gv-header__symbol {
+                color: var(--gv-text-muted);
+                font-weight: 400;
+            }
+
+            #crypto-info-geckoview .gv-header__rank {
+                font-size: 11px;
+                font-weight: 600;
+                color: var(--gv-text-muted);
+                background: var(--gv-pill-bg);
+                border-radius: 4px;
+                padding: 1px 6px;
+                flex-shrink: 0;
+            }
+
+            #crypto-info-geckoview .gv-header__coingecko {
+                flex-shrink: 0;
+                display: flex;
+                opacity: 0.7;
+                transition: opacity .15s;
+            }
+
+            #crypto-info-geckoview .gv-header__coingecko:hover {
+                opacity: 1;
+            }
+
+            #crypto-info-geckoview .gv-header__coingecko img {
+                width: 18px;
+                height: 18px;
+                display: block;
+            }
+
+            #crypto-info-geckoview .gv-links {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px;
+                margin-top: 12px;
+            }
+
+            #crypto-info-geckoview .gv-links a {
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
+                font-size: 12px;
+                color: var(--gv-text);
+                text-decoration: none;
+                background: var(--gv-pill-bg);
+                border-radius: 6px;
+                padding: 4px 9px;
+                transition: background .15s;
+            }
+
+            #crypto-info-geckoview .gv-links a:hover {
+                background: var(--gv-pill-bg-hover);
+            }
+
+            #crypto-info-geckoview .gv-links svg {
+                width: 13px;
+                height: 13px;
+                flex-shrink: 0;
+            }
+
+            #crypto-info-geckoview .gv-section-title {
+                font-size: 11px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: .03em;
+                color: var(--gv-text-muted);
+                margin: 16px 0 4px;
+            }
+
+            #crypto-info-geckoview .gv-stats {
+                display: flex;
+                flex-direction: column;
+            }
+
+            #crypto-info-geckoview .gv-stat-row {
+                display: flex;
+                align-items: baseline;
+                justify-content: space-between;
+                gap: 12px;
+                padding: 7px 0;
+                border-bottom: 1px solid var(--gv-border);
+            }
+
+            #crypto-info-geckoview .gv-stat-row:last-child {
+                border-bottom: none;
+            }
+
+            #crypto-info-geckoview .gv-stat-row__label {
+                font-size: 12px;
+                color: var(--gv-text-muted);
+                flex-shrink: 0;
+            }
+
+            #crypto-info-geckoview .gv-stat-row__value {
+                font-size: 12.5px;
+                font-weight: 600;
+                color: var(--gv-text);
+                text-align: right;
+                word-break: break-word;
+            }
+
+            #crypto-info-geckoview .gv-loader-wrap {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 24px 0;
+            }
+
+            #crypto-info-geckoview .gv-loader {
+                width: 22px;
+                height: 22px;
+                border-radius: 50%;
+                border: 3px solid var(--gv-border);
+                border-top-color: var(--gv-accent);
+                animation: gv-spin .8s linear infinite;
+            }
+
+            @keyframes gv-spin {
+                to { transform: rotate(360deg); }
+            }
+
+            #crypto-info-geckoview .gv-error {
+                color: var(--gv-danger);
+                font-size: 12px;
+                padding: 12px 0 0;
+            }
+        </style>
+    `;
+}
+
+// Generic (non-brand) line icons for the social link row, 24x24 viewBox, stroke-based.
+const GV_ICON_WEBSITE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"></path></svg>`;
+const GV_ICON_X = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5l14 14M19 5L5 19"></path></svg>`;
+const GV_ICON_SEND = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"></path><path d="M22 2l-7 20-4-9-9-4 20-7z"></path></svg>`;
+const GV_ICON_CHAT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>`;
 
 // Shared widget header, used by every response variant below. When `coin` is omitted this
 // renders the plain "GeckoView" title (default/loading/error states); when provided it renders
 // the coin's logo, name, symbol and market cap rank instead (successful data state).
 function buildWidgetHeader(coin) {
-    const titleContent = coin ? `
-                <span class="logo-d0vVmGvT container-M1mz4quA">
-                    <span class="logo-M1mz4quA">
-                        <img crossorigin="" decoding="async" src="${escapeHtml(coin.image)}">
-                    </span>
-                </span>
-
-                <span class="title-ZJX9Rmzv">
-                    <a style="color: black;" title="" href="https://www.coingecko.com/en/coins/${escapeHtml(coin.id)}" target="_blank">
-                        ${escapeHtml(coin.name)} (${escapeHtml(coin.symbol)})
-
-                        <span class="widget-rank">#${coin.rank ? coin.rank : '?'}</span>
-                    </a>
-                </span>` : `
-                <span class="title-ZJX9Rmzv">
-                    GeckoView
-                </span>`;
+    const identity = coin ? `
+                <a class="gv-header__title" href="https://www.coingecko.com/en/coins/${escapeHtml(coin.id)}" target="_blank" title="${escapeHtml(coin.name)}">
+                    <img class="gv-header__logo" src="${escapeHtml(coin.image)}" alt="">
+                    <span>${escapeHtml(coin.name)}</span>
+                    <span class="gv-header__symbol">${escapeHtml(coin.symbol)}</span>
+                </a>
+                <span class="gv-header__rank">#${coin.rank ? coin.rank : '?'}</span>` : `
+                <span class="gv-header__title">GeckoView</span>`;
 
     const coingeckoLink = coin ? `https://www.coingecko.com/en/coins/${escapeHtml(coin.id)}` : `https://www.coingecko.com/`;
 
     return `
-        <div class="widgetHeader-X9EuSe_t">
-            <div class="container-ZJX9Rmzv">
-                ${titleContent}
-
-                <div class="groupWrap-ZJX9Rmzv hasDisabledSet-ZJX9Rmzv">
-                    <span class="coingecko">
-                        <a title="" href="${coingeckoLink}" target="_blank">
-                            <img alt="" style="width:25px;" loading="lazy" fetchpriority="high" class="" src="https://3936590801-files.gitbook.io/~/files/v0/b/gitbook-x-prod.appspot.com/o/spaces%2FuBDUa2ODcAkHHV15nEGc%2Ficon%2FdxukYF8Wxc39yBmmdpey%2FCoinGecko%20Logo.svg?alt=media&amp;token=cc062811-ede6-4788-815a-576f31cd16f9">
-                        </a>
-                    </span>
-                </div>
+        <div class="gv-header">
+            <div class="gv-header__identity">${identity}
             </div>
+            <a class="gv-header__coingecko" href="${coingeckoLink}" target="_blank" title="View on CoinGecko">
+                <img src="https://3936590801-files.gitbook.io/~/files/v0/b/gitbook-x-prod.appspot.com/o/spaces%2FuBDUa2ODcAkHHV15nEGc%2Ficon%2FdxukYF8Wxc39yBmmdpey%2FCoinGecko%20Logo.svg?alt=media&amp;token=cc062811-ede6-4788-815a-576f31cd16f9" alt="">
+            </a>
         </div>
     `;
 }
 
 function buildHtmlHeaderResponse() {
     return `
-        <style>
-            .widget-rank {
-                background-color: rgb(241 245 249 / var(--tw-bg-opacity));
-                --tw-bg-opacity: 1;
-                padding-left: .375rem;
-                padding-right: .375rem;
-                padding-top: .125rem;
-                padding-bottom: .125rem;
-            }
-        </style>
-
+        ${buildGeckoViewStyles()}
         ${buildWidgetHeader()}
         `;
 }
 
 function buildHtmlErrorResponse(data) {
     return `
-        <style>
-            .error {
-                color: red;
-                margin: 14px;
-            }
-        </style>
-
+        ${buildGeckoViewStyles()}
         ${buildWidgetHeader()}
-
-        <div class="widgetbar-widgetbody" style="height: 80px;">
-            <div class="container-Tv7LSjUz">
-                <p class="error">Error fetching coin data: ${escapeHtml(data.error)}</p>
-            </div>
-        </div>
+        <p class="gv-error">Error fetching coin data: ${escapeHtml(data.error)}</p>
         `;
 }
 
 function buildLoaderHtmlResponse() {
     return `
-        <style>
-        .loader {
-                    margin: auto;
-                    border: 5px solid #f3f3f3;
-                    border-top: 5px solid #555;
-                    border-radius: 50%;
-                    width: 30px;
-                    height: 30px;
-                    animation: spin 2s linear infinite;
-                    -webkit-animation: spin 1s linear infinite;
-                }
-
-            /* Safari */
-            @-webkit-keyframes spin {
-            0% { -webkit-transform: rotate(0deg); }
-            100% { -webkit-transform: rotate(360deg); }
-            }
-
-            @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-            }
-        </style>
-
+        ${buildGeckoViewStyles()}
         ${buildWidgetHeader()}
-
-        <div class="widgetbar-widgetbody" style="height: 180px;">
-            <div class="container-Tv7LSjUz">
-                <div class="loader"></div>
-            </div>
+        <div class="gv-loader-wrap">
+            <div class="gv-loader"></div>
         </div>
-
     `;
 }
 
@@ -128,36 +281,23 @@ function buildHtmlResponse(data) {
     const telegramId = data.links.telegram_channel_identifier;
     const discordUrl = data.links.chat_url && data.links.chat_url[0];
 
-    const twitter = twitterHandle ? `<a target="_blank" href="https://x.com/${escapeHtml(twitterHandle)}" tabindex="-1" class="button-vll9ujXF">
-                    <img alt="" class="tv-footer-socials__icon-image" src="/static/bundles/ui-lib/icons/28px-filled/social-icons/x-twitter-color-off.svg" loading="lazy" height="18" width="18">
-                    Twitter
-                </a>` : ``;
-    const homepage = homepageUrl ? `<a target="_blank" href="${escapeHtml(homepageUrl)}" tabindex="-1" class="button-vll9ujXF">
-                    <svg width="18" height="18" viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M12.1 4.69a9.54 9.54 0 0 1 3.8 0c.52 1.13.95 2.65 1.23 4.42a12.5 12.5 0 0 1-6.26 0c.28-1.77.71-3.29 1.23-4.42Zm-1.84.57a9.52 9.52 0 0 0-3.04 2.08c.63.51 1.38.95 2.2 1.3.22-1.25.5-2.39.84-3.38Zm-1.05 4.9c-1.1-.42-2.1-.98-2.95-1.67a9.46 9.46 0 0 0 0 11.03c.86-.68 1.86-1.24 2.96-1.66a33.91 33.91 0 0 1 0-7.7Zm.22 9.23c-.82.34-1.56.78-2.2 1.28a9.52 9.52 0 0 0 3.03 2.07 21.2 21.2 0 0 1-.83-3.35Zm2.67 3.92a17.46 17.46 0 0 1-1.23-4.4 12.2 12.2 0 0 1 6.26 0 17.46 17.46 0 0 1-1.23 4.4 9.54 9.54 0 0 1-3.8 0Zm5.64-.57a9.52 9.52 0 0 0 3.03-2.07 9.62 9.62 0 0 0-2.2-1.28 21.2 21.2 0 0 1-.83 3.35Zm1.04-4.88c1.1.42 2.1.98 2.95 1.66a9.46 9.46 0 0 0 .01-11.03c-.85.7-1.85 1.25-2.95 1.67a33.93 33.93 0 0 1 0 7.7Zm-1.45-7.25a14.06 14.06 0 0 1-6.66 0 32.64 32.64 0 0 0 0 6.8 13.74 13.74 0 0 1 6.66 0 32.62 32.62 0 0 0 0-6.8Zm1.24-1.98a9.1 9.1 0 0 0 2.2-1.29 9.52 9.52 0 0 0-3.03-2.08c.34 1 .62 2.13.83 3.37ZM14 3a11 11 0 1 0 0 22 11 11 0 0 0 0-22Z" fill="currentColor"></path></svg>
-                    Website
-                </a>` : ``;
-    const telegram = telegramId ? ` <a target="_blank" href="https://t.me/${escapeHtml(telegramId)}" tabindex="-1" class="button-vll9ujXF">
-                    <img alt="" class="tv-footer-socials__icon-image" src="/static/bundles/ui-lib/icons/28px-filled/social-icons/telegram-color-off.svg" loading="lazy" height="18" width="18">
-                    Telegram
-                </a>` : ``;
-    const discord = discordUrl ? ` <a target="_blank" href="${escapeHtml(discordUrl)}" tabindex="-1" class="button-vll9ujXF">
-                    <img alt="" class="tv-footer-socials__icon-image" src="/static/bundles/ui-lib/icons/28px-filled/social-icons/discord-color-off.svg" loading="lazy" height="18" width="18">
-                    Discord
-                </a>` : ``;
+    const twitter = twitterHandle ? `<a target="_blank" href="https://x.com/${escapeHtml(twitterHandle)}">${GV_ICON_X} Twitter</a>` : ``;
+    const homepage = homepageUrl ? `<a target="_blank" href="${escapeHtml(homepageUrl)}">${GV_ICON_WEBSITE} Website</a>` : ``;
+    const telegram = telegramId ? `<a target="_blank" href="https://t.me/${escapeHtml(telegramId)}">${GV_ICON_SEND} Telegram</a>` : ``;
+    const discord = discordUrl ? `<a target="_blank" href="${escapeHtml(discordUrl)}">${GV_ICON_CHAT} Discord</a>` : ``;
+
+    const linksRow = (homepage || twitter || telegram || discord) ? `
+        <div class="gv-links">
+            ${homepage}
+            ${twitter}
+            ${telegram}
+            ${discord}
+        </div>` : ``;
+
+    const circulatingPercentage = formatCirculatingPercentage(data.market_data.circulating_supply, data.market_data.total_supply);
 
     return `
-
-        <style>
-            .widget-rank {
-                background-color: rgb(241 245 249 / var(--tw-bg-opacity));
-                --tw-bg-opacity: 1;
-                padding-left: .375rem;
-                padding-right: .375rem;
-                padding-top: .125rem;
-                padding-bottom: .125rem;
-            }
-        </style>
-
+        ${buildGeckoViewStyles()}
         ${buildWidgetHeader({
             image: data.image.thumb,
             id: data.id,
@@ -165,74 +305,33 @@ function buildHtmlResponse(data) {
             symbol: data.symbol.toUpperCase(),
             rank: data.market_cap_rank
         })}
+        ${linksRow}
 
-        <div class="widgetWrapper-BSF4XTsE">
-            <div class="buttonContainer-vll9ujXF" data-name="details-more-technicals-button">
-                ${homepage}
-                ${twitter}
-                ${telegram}
-                ${discord}
+        <div class="gv-section-title">Key stats</div>
+        <div class="gv-stats">
+            <div class="gv-stat-row">
+                <span class="gv-stat-row__label">Market cap</span>
+                <span class="gv-stat-row__value">${formatUsdOrNA(data.market_data.market_cap.usd)}</span>
             </div>
-        </div>
-
-        <div class="widgetbar-widgetbody" style="height: 180px;">
-            <div class="container-Tv7LSjUz">
-
-                <div class="widgetWrapper-BSF4XTsE" data-name="details-key-stats">
-                    <div class="container-Wrldc8m4 title-KSzJG6_A">
-                        <span>Key stats</span>
-                    </div>
-                    <div class="items-KSzJG6_A">
-                        <div class="item-cXDWtdxq">
-                            <div class="title-cXDWtdxq">
-                                <span>Market cap</span>
-                            </div>
-                            <span class="data-cXDWtdxq">‪${formatUsdOrNA(data.market_data.market_cap.usd)}‬</span>
-                        </div>
-
-                        <div class="item-cXDWtdxq">
-                            <div class="title-cXDWtdxq">
-                                <span>Fully diluted valuation</span>
-                            </div>
-                            <span class="data-cXDWtdxq">‪${formatUsdOrNA(data.market_data.fully_diluted_valuation.usd)}‬</span>
-                        </div>
-
-                        <div class="item-cXDWtdxq">
-                            <div class="title-cXDWtdxq">
-                                <span>24h Total Volume</span>
-                            </div>
-                            <span class="data-cXDWtdxq">‪${formatUsdOrNA(data.market_data.total_volume.usd)}‬</span>
-                        </div>
-
-                        <div class="item-cXDWtdxq">
-                            <div class="title-cXDWtdxq">
-                                <span>Total supply</span>
-                            </div>
-                            <span class="data-cXDWtdxq">‪${formatNumberOrNA(data.market_data.total_supply)}‬</span>
-                        </div>
-
-                        <div class="item-cXDWtdxq">
-                            <div class="title-cXDWtdxq">
-                                <span>Circulating supply</span>
-                            </div>
-                            <span class="data-cXDWtdxq">‪${formatNumberOrNA(data.market_data.circulating_supply)}${formatCirculatingPercentage(data.market_data.circulating_supply, data.market_data.total_supply)}‬</span>
-                        </div>
-
-                        <div class="item-cXDWtdxq">
-                            <div class="title-cXDWtdxq">
-                                <span>ATL / ATH</span>
-                            </div>
-                            <span class="data-cXDWtdxq">
-                                ‪
-                                    <span title="All time low">${displayPrice(data.market_data.atl.usd)}</span>
-                                    /
-                                    <span title="All time high">${displayPrice(data.market_data.ath.usd)}</span>
-                                ‬
-                            </span>
-                        </div>
-                    </div>
-                </div>
-
+            <div class="gv-stat-row">
+                <span class="gv-stat-row__label">Fully diluted valuation</span>
+                <span class="gv-stat-row__value">${formatUsdOrNA(data.market_data.fully_diluted_valuation.usd)}</span>
+            </div>
+            <div class="gv-stat-row">
+                <span class="gv-stat-row__label">24h total volume</span>
+                <span class="gv-stat-row__value">${formatUsdOrNA(data.market_data.total_volume.usd)}</span>
+            </div>
+            <div class="gv-stat-row">
+                <span class="gv-stat-row__label">Total supply</span>
+                <span class="gv-stat-row__value">${formatNumberOrNA(data.market_data.total_supply)}</span>
+            </div>
+            <div class="gv-stat-row">
+                <span class="gv-stat-row__label">Circulating supply</span>
+                <span class="gv-stat-row__value">${formatNumberOrNA(data.market_data.circulating_supply)}${circulatingPercentage}</span>
+            </div>
+            <div class="gv-stat-row">
+                <span class="gv-stat-row__label">ATL / ATH</span>
+                <span class="gv-stat-row__value">${displayPrice(data.market_data.atl.usd)} / ${displayPrice(data.market_data.ath.usd)}</span>
             </div>
         </div>
     `;
