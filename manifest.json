@@ -3,8 +3,8 @@
   "description": "GeckoView: A Chrome extension integrating essential CoinGecko data into TradingView charts for quick access to vital market stats.",
   "version": "0.0.2",
   "manifest_version": 3,
-  "host_permissions": ["https://api.coingecko.com/*", "https://pro-api.coingecko.com/*"],
-  "permissions": ["storage"],
+  "host_permissions": ["https://api.coingecko.com/*", "https://pro-api.coingecko.com/*", "https://www.tradingview.com/*"],
+  "permissions": ["storage", "scripting"],
   "background": {
     "service_worker": "background.js"
   },

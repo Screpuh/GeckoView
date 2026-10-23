@@ -138,14 +138,49 @@ function setupAdBlockerPopupAutoClose() {
 }
 
 // Clicking an Exchanges-tab row ideally jumps straight to that exact pair on TradingView's own
-// chart (e.g. "COINBASE:BTCUSD"), not out to the exchange's own website. There's no official way
-// to do this: TradingView doesn't expose a documented API for "resolve this base/target/exchange
-// to a TradingView symbol", so this calls symbol-search.tradingview.com/symbol_search/v3/ - an
-// undocumented endpoint found by watching TradingView's own search box make network requests, not
-// a published API. It could change or disappear without notice. That's acceptable here only
-// because failure is harmless: any error (network, no match, endpoint gone) falls back to
-// `fallbackUrl` (the ticker's own trade_url, i.e. exactly today's behavior), opened the same way
-// the native link click would have.
+// chart (e.g. "COINBASE:BTCUSD") IN PLACE - exactly like clicking a result in TradingView's own
+// symbol-search box does: no new tab, no reload, drawings/indicators preserved - rather than out
+// to the exchange's own website. There's no official way to do either half of this:
+//
+// 1. Resolving a CoinGecko ticker (exchange + base/target) to a TradingView symbol calls
+//    symbol-search.tradingview.com/symbol_search/v3/ - an undocumented endpoint found by watching
+//    TradingView's own search box make network requests, not a published API. It could change or
+//    disappear without notice.
+// 2. Actually switching the chart to that symbol in place calls
+//    `window._exposed_chartWidgetCollection.setSymbol(tvSymbol)` - confirmed live to be exactly
+//    what TradingView's own search-result click does, by hooking the real method and watching
+//    TradingView's own UI call it. This is NOT the documented Charting Library embed API (that's a
+//    different, published thing for third-party embeds) - it's an undocumented, minified internal
+//    object on the main site itself, reverse-engineered by runtime inspection, with zero stability
+//    guarantee: it can change shape or disappear on any TradingView deploy, not just a redesign.
+//    Two separate blind guesses at its argument shape each caused real, live-confirmed breakage:
+//    a guessed 2nd-argument object unexpectedly popped open TradingView's own search dialog, and a
+//    guessed 3rd-argument callback (an earlier version of this code passed one, on the wrong
+//    assumption that `setSymbol` takes a completion callback) made TradingView's own code crash
+//    trying to call `.hasModel()` on that function - the real signature is
+//    `setSymbol(symbol, linkingGroupIndex, chartWidgetOverride)`, no callback at all, and a
+//    function in that 3rd slot gets treated as a chart-widget object to filter alongside the real
+//    ones. Omitting both optional arguments (as done now) lets them default to the current linking
+//    group and the active chart widget - exactly what's wanted here - and its actual effect is
+//    still verified against the DOM (see the injected function below) rather than trusted on
+//    faith, since a second real TradingView UI click during testing didn't even route through the
+//    same method.
+//
+// `_exposed_chartWidgetCollection` lives on the PAGE's own `window`, in the page's main JS world -
+// content scripts run in an *isolated* world with their own separate `window` that cannot see it
+// (confirmed live: directly reading `window._exposed_chartWidgetCollection` from this file is
+// always undefined, even though the identical-looking read succeeds from the page's own console).
+// Reaching it needs `chrome.scripting.executeScript(..., { world: 'MAIN' })`, which only the
+// background service worker can call (content scripts have no `chrome.scripting` access) - hence
+// the `switchTradingViewSymbol` message to `background.js` below, which runs the injected function
+// in the page's real world and relays back whether the DOM confirms it worked.
+//
+// On any failure anywhere in this chain (network error, no symbol-search match, endpoint
+// changed/gone, `_exposed_chartWidgetCollection` missing/reshaped, or the switch not visibly
+// taking effect) this falls back to the ticker's own `fallbackUrl` (`trade_url`) - exactly the
+// pre-feature behavior, opened the same way the native link click would have. There is
+// deliberately no other fallback (e.g. opening the resolved TradingView symbol in a new tab): the
+// in-place switch or nothing is the whole point of this feature.
 function openExchangeTickerLink(exchangeName, base, target, fallbackUrl) {
     const openFallback = () => {
         if (fallbackUrl) {
@@ -154,9 +189,6 @@ function openExchangeTickerLink(exchangeName, base, target, fallbackUrl) {
     };
 
     if (!isExtensionContextValid()) {
-        // Not actually extension-context-dependent (no chrome.* call below), but if the context
-        // is already gone the rest of the widget is about to show its "refresh the page" state
-        // anyway, so there's no reason to attempt this.
         openFallback();
         return;
     }
@@ -171,13 +203,35 @@ function openExchangeTickerLink(exchangeName, base, target, fallbackUrl) {
         .then(response => response.ok ? response.json() : Promise.reject(new Error('symbol search failed')))
         .then(data => {
             const tvSymbol = findTradingViewSymbolMatch(data.symbols, exchangeName, base, target);
-            if (tvSymbol) {
-                window.location.href = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tvSymbol)}`;
-            } else {
+            if (!tvSymbol) {
                 openFallback();
+                return;
             }
+            trySwitchSymbolInPlace(tvSymbol, query).then(switched => {
+                if (!switched) {
+                    openFallback();
+                }
+            });
         })
         .catch(openFallback);
+}
+
+// Asks background.js to run the in-page switch in the page's main JS world (see
+// openExchangeTickerLink() above for why). Wrapped in try/catch since
+// chrome.runtime.sendMessage can throw synchronously if the extension context has just been
+// invalidated, same as elsewhere in this file. Resolves `false` (never rejects) on any failure -
+// message channel error, background.js reporting the switch didn't verify, or an exception - so
+// callers can treat this as a plain yes/no.
+function trySwitchSymbolInPlace(tvSymbol, wantedSymbol) {
+    return new Promise(resolve => {
+        try {
+            chrome.runtime.sendMessage({ action: 'switchTradingViewSymbol', tvSymbol, wantedSymbol }, response => {
+                resolve(!chrome.runtime.lastError && !!response && response.success === true);
+            });
+        } catch (e) {
+            resolve(false);
+        }
+    });
 }
 
 // Chrome tears down a content script's connection to the extension when the extension is

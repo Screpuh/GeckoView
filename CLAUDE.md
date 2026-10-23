@@ -12,8 +12,11 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
 ## File map
 
 - `manifest.json` — MV3 manifest. Registers the background service worker,
-  `host_permissions` for `api.coingecko.com`, the `storage` permission (for
-  `chrome.storage.sync` settings), the content scripts (matches
+  `host_permissions` for `api.coingecko.com`, `pro-api.coingecko.com`, and
+  `www.tradingview.com` (the last one needed only for
+  `chrome.scripting.executeScript` — see the exchange-row-click architecture
+  note), the `storage` and `scripting` permissions (the latter also for that
+  same `chrome.scripting` call), the content scripts (matches
   `https://www.tradingview.com/chart/*`, loaded in order `settings.js` →
   `utils.js` → `templates.js` → `content.js`), and the popup/icons for the
   toolbar action.
@@ -32,7 +35,12 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
   `fetchCoinNews`/`fetchCoinInsights` (see the Categories/tabs architecture
   note) via a shared `handleListEndpointRequest()` helper and a generic
   `createTtlCache()` factory (the same TTL-`Map` shape as the coin-data
-  cache, reused for `newsCache`/`insightsCache`). Pure/testable pieces
+  cache, reused for `newsCache`/`insightsCache`), and
+  `switchTradingViewSymbol` (`handleSwitchTradingViewSymbol()` — see the
+  exchange-row-click architecture note) via `chrome.scripting.executeScript`
+  with `world: 'MAIN'`, the only way to reach a function exposed on the
+  TradingView page's own `window` from an extension, since content scripts
+  run in an isolated world that can't see it. Pure/testable pieces
   (`formatTradingPair`, the caches, the API key/URL/error helpers) are
   exported via a `typeof module !== 'undefined'` guard for the same reason
   (no-op in the browser).
@@ -314,31 +322,104 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
     `gv-news-item*`/`gv-insight-item*` the way the list-wrapper spacing
     rule used to (unshared on purpose: the exchange rows' own vertical
     padding would have doubled up with the shared list `gap`).
-  - **Exchange rows link to the matching TradingView chart, not the
-    exchange's own site, when that can be resolved.**
-    `openExchangeTickerLink()` in `content.js` calls
-    `https://symbol-search.tradingview.com/symbol_search/v3/` with the
-    ticker's base+target and tries to match a result to the ticker's
-    exchange via `findTradingViewSymbolMatch()` (`utils.js`). **This is an
-    undocumented TradingView endpoint** — found by watching TradingView's
-    own symbol search box make network requests, not a published API, so
-    it could change or disappear without notice; that's acceptable only
-    because failure is harmless (see below). It's necessary because
-    CoinGecko and TradingView maintain independent exchange-identifier
-    namespaces that frequently disagree even for major exchanges —
-    confirmed live: CoinGecko's `gdax`/`bybit_spot`/`okex`/`mxc` are
-    TradingView's `COINBASE`/`BYBIT`/`OKX`/`MEXC` — so the match is on the
-    *display* name (fuzzy, via `normalizeExchangeName`), never on
-    CoinGecko's identifier slug. Kraken's CoinGecko ticker also uses `XBT`
-    for Bitcoin, which the search endpoint doesn't resolve at all, so
-    `normalizeTickerSymbol()` maps that one confirmed case to `BTC` before
-    searching. On any failure (network error, no match, endpoint
-    changed/gone) this falls back to the ticker's own `trade_url` — exactly
-    today's behavior — opened the same way the native link click would
-    have, so the feature can only ever degrade to "nothing changed," never
-    break the row. A plain left-click is intercepted
-    (`event.preventDefault()`); a modified click (new tab/window, etc.) is
-    deliberately left alone to fall through to the native `<a href>`.
+  - **Exchange rows switch the chart to that exact pair IN PLACE, exactly
+    like clicking a result in TradingView's own symbol-search box** (no new
+    tab, no reload, drawings/indicators preserved) **when that can be
+    resolved — never out to the exchange's own site unless it can't be.**
+    This is explicitly what was asked for after two earlier, wrong designs
+    were tried and rejected — see git history around 2026-10-23: same-tab
+    `window.location.href` navigation (silently blocked by TradingView's
+    `beforeunload` "unsaved changes" guard, see below) and opening the
+    resolved symbol in a new tab (works, but is not what "jump to that
+    chart" means to this extension's actual user — a new tab was explicitly
+    rejected even though it reliably loaded the right symbol). There are two
+    undocumented pieces chained together, each with its own `openFallback()`
+    at the end for when it doesn't work:
+    - **Resolving the ticker to a TradingView symbol.**
+      `openExchangeTickerLink()` (`content.js`) calls
+      `https://symbol-search.tradingview.com/symbol_search/v3/` with the
+      ticker's base+target and matches a result to the ticker's exchange via
+      `findTradingViewSymbolMatch()` (`utils.js`). **This is an undocumented
+      TradingView endpoint** — found by watching TradingView's own search box
+      make network requests, not a published API, so it could change or
+      disappear without notice. It's necessary because CoinGecko and
+      TradingView maintain independent exchange-identifier namespaces that
+      frequently disagree even for major exchanges — confirmed live:
+      CoinGecko's `gdax`/`bybit_spot`/`okex`/`mxc` are TradingView's
+      `COINBASE`/`BYBIT`/`OKX`/`MEXC` — so the match is on the *display* name
+      (fuzzy, via `normalizeExchangeName`), never on CoinGecko's identifier
+      slug. Kraken's CoinGecko ticker also uses `XBT` for Bitcoin, which the
+      search endpoint doesn't resolve at all, so `normalizeTickerSymbol()`
+      maps that one confirmed case to `BTC` before searching.
+    - **Switching the chart to that symbol in place.** Once resolved,
+      `content.js` asks `background.js` (via a `switchTradingViewSymbol`
+      message) to run `window._exposed_chartWidgetCollection.setSymbol
+      (tvSymbol)` — confirmed live to be exactly what TradingView's own
+      search-result click does, by hooking the real method and watching
+      TradingView's own UI call it. This is a *different*, undocumented,
+      minified internal object on the main site — not the published Charting
+      Library embed API used for third-party embeds — found purely by
+      runtime inspection, with no stability guarantee (can change shape or
+      vanish on any TradingView deploy, not just a redesign). Two separate
+      blind guesses at this API's shape each caused real, live-confirmed
+      breakage before arriving at the plain single-argument call: a guessed
+      object as the 2nd argument popped open TradingView's own search dialog
+      unexpectedly, and a guessed callback function as the 3rd argument (an
+      earlier version of this code had one, on the wrong assumption that
+      `setSymbol`'s 3rd parameter was a completion callback) made
+      TradingView's own internal code try to call `.hasModel()` on that
+      function — since the real signature is
+      `setSymbol(symbol, linkingGroupIndex, chartWidgetOverride)`, with no
+      callback parameter at all, and a function object in that 3rd slot gets
+      treated as a chart-widget object to filter alongside the real ones,
+      throwing `TypeError: e.hasModel is not a function` inside TradingView's
+      own minified bundle. Omitting both optional arguments lets them default
+      to the current linking group and the active chart widget, which is
+      exactly what's wanted here, and is what's actually used now. **Why a
+      message to `background.js` rather than a direct call from
+      `content.js`:**
+      `_exposed_chartWidgetCollection` lives on the page's own `window`, in
+      the page's main JS world; content scripts run in an *isolated* world
+      with a separate `window` that cannot see it at all — confirmed live
+      that reading it directly from `content.js` is always `undefined`, even
+      on a page where the identical-looking read succeeds from the page's
+      own console. Reaching it needs
+      `chrome.scripting.executeScript(..., { world: 'MAIN' })`
+      (`handleSwitchTradingViewSymbol()` in `background.js`, via the
+      `scripting` permission and the `www.tradingview.com` host permission
+      added to `manifest.json` for exactly this), which only the background
+      service worker can call — content scripts have no `chrome.scripting`
+      access. The injected function runs in a completely separate JS realm
+      from `background.js` (a fresh global scope on the page itself), so it
+      is fully self-contained (no closures over anything in `background.js`,
+      only its own `args`) and returns a Promise, which `executeScript`
+      awaits and surfaces as that injection's `.result`. Its actual effect is
+      then verified against the `data-qa-id="details-element symbol"` DOM
+      element rather than trusted on a non-throw — confirmed live that a
+      second real TradingView UI click didn't even route through the same
+      method, so a silent no-op is a real possibility, not just a
+      theoretical one.
+    - On any failure anywhere in that chain — network error, no
+      symbol-search match, search endpoint changed/gone,
+      `_exposed_chartWidgetCollection` missing/reshaped, or the switch not
+      visibly taking effect within 600ms — this falls back to the ticker's
+      own `trade_url`, exactly the pre-feature behavior, opened the same way
+      the native link click would have, so the feature can only ever degrade
+      to "nothing changed," never break the row. **There is deliberately no
+      other fallback** (e.g. opening the resolved TradingView symbol in a new
+      tab was tried and explicitly rejected) — the in-place switch or nothing
+      is the whole point of this feature. Same-tab `window.location.href`
+      navigation was tried even earlier and found to silently fail in
+      practice: TradingView's chart page has an "unsaved changes"
+      `beforeunload` guard (the same one behind its "Leave site?" prompt)
+      that blocks any real navigation whenever the chart has an unsaved
+      drawing/indicator — which is most of the time for an active chart —
+      with no JS-visible event for a cancelled `beforeunload` to detect and
+      recover from; confirmed live, including that a plain
+      `window.location.href = ...` typed into that page's own console was
+      silently blocked. A plain left-click is intercepted
+      (`event.preventDefault()`); a modified click (new tab/window, etc.) is
+      deliberately left alone to fall through to the native `<a href>`.
   - **News/Insights** (https://docs.coingecko.com/reference/news,
     https://docs.coingecko.com/reference/insights) **require a paid
     CoinGecko plan** (Analyst/Lite/Pro/Enterprise — not Demo, not keyless)

@@ -213,6 +213,69 @@ function handleExchangesRequest(message, sendResponse) {
     });
 }
 
+// Runs the in-page "jump to this exchange's chart" switch (see openExchangeTickerLink() in
+// content.js for the full why) in the TARGET TAB's own PAGE JS world, not the content script's
+// isolated world - content.js cannot see the page's `window._exposed_chartWidgetCollection`
+// itself (confirmed live: an isolated-world read of it is always undefined even on a page where
+// it demonstrably exists), and `chrome.scripting.executeScript` with `world: 'MAIN'` is the only
+// way to reach it. Only the background service worker has `chrome.scripting` access, hence this
+// being a message handler rather than something content.js does directly.
+//
+// The injected function runs in a completely separate JS realm from this file (a fresh global
+// scope on the page itself), so it must be fully self-contained - no closures over anything here,
+// only its own `args`. It returns a Promise, which `executeScript` awaits and surfaces as that
+// injection's `.result`.
+function handleSwitchTradingViewSymbol(message, sender, sendResponse) {
+    if (!sender.tab || typeof sender.tab.id !== 'number') {
+        sendResponse({ success: false });
+        return;
+    }
+
+    chrome.scripting.executeScript({
+        target: { tabId: sender.tab.id },
+        world: 'MAIN',
+        func: (tvSymbol, wantedSymbol) => {
+            return new Promise(resolve => {
+                const collection = window._exposed_chartWidgetCollection;
+                if (!collection || typeof collection.setSymbol !== 'function') {
+                    resolve(false);
+                    return;
+                }
+
+                try {
+                    // Just the symbol - no 2nd/3rd arg. `setSymbol`'s real signature is
+                    // (symbol, linkingGroupIndex, chartWidgetOverride); there is no callback
+                    // parameter. Passing a function in that 3rd slot (an earlier version of this
+                    // code did, assuming it was a callback) makes TradingView's own internal code
+                    // treat that function AS a chart-widget object, then crash calling
+                    // `.hasModel()` on it - confirmed live (`TypeError: e.hasModel is not a
+                    // function` inside TradingView's own minified bundle). Omitting both optional
+                    // args lets them default to the current linking group and the active chart
+                    // widget, which is exactly what's wanted here.
+                    collection.setSymbol(tvSymbol);
+                } catch (e) {
+                    resolve(false);
+                    return;
+                }
+
+                // Verified against the DOM, not just "the call didn't throw" - confirmed live
+                // that TradingView's own UI doesn't always route a symbol change through this
+                // exact method, so a silent no-op here is a real possibility.
+                setTimeout(() => {
+                    const symbolEl = document.querySelector('[data-qa-id="details-element symbol"]');
+                    const shown = symbolEl ? (symbolEl.textContent || '').split('.')[0].toUpperCase() : '';
+                    resolve(shown === wantedSymbol);
+                }, 600);
+            });
+        },
+        args: [message.tvSymbol, message.wantedSymbol]
+    }).then(results => {
+        sendResponse({ success: Array.isArray(results) && !!results[0] && results[0].result === true });
+    }).catch(() => {
+        sendResponse({ success: false });
+    });
+}
+
 // The chrome.* APIs only exist in the extension runtime, not in the Node test runner,
 // so this registration is skipped there (see test/formatTradingPair.test.js).
 if (typeof chrome !== 'undefined') {
@@ -323,6 +386,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     if (message.action === 'fetchCoinInsights') {
         handleListEndpointRequest(message, sendResponse, { pathSegment: 'insights', cache: insightsCache, featureLabel: 'Insights' });
+        return true;
+    }
+
+    if (message.action === 'switchTradingViewSymbol') {
+        handleSwitchTradingViewSymbol(message, sender, sendResponse);
         return true;
     }
 });
