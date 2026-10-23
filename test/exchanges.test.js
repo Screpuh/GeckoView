@@ -57,14 +57,14 @@ test('fetchCoinExchanges works keyless (no Pro-gating, unlike News/Insights)', a
     assert.equal(result.data.length, 3);
 });
 
-test('fetchCoinExchanges calls /coins/{id}/tickers with volume ordering and exchange logos requested, on the correct host for the key type', async () => {
+test('fetchCoinExchanges calls /coins/{id}/tickers with trust_score_desc ordering and exchange logos requested, on the correct host for the key type', async () => {
     const sandbox = createSandbox({
         apiKey: 'my-demo-key', apiKeyType: 'demo',
         fetchImpl: () => Promise.resolve({ status: 200, json: () => Promise.resolve({ name: 'Bitcoin', tickers: tickerFixture(1) }) })
     });
     await send(sandbox, { action: 'fetchCoinExchanges', coinId: 'bitcoin' });
     assert.equal(sandbox.calls.length, 1);
-    assert.equal(sandbox.calls[0].url, 'https://api.coingecko.com/api/v3/coins/bitcoin/tickers?order=volume_desc&include_exchange_logo=true');
+    assert.equal(sandbox.calls[0].url, 'https://api.coingecko.com/api/v3/coins/bitcoin/tickers?order=trust_score_desc&include_exchange_logo=true');
     assert.equal(sandbox.calls[0].options.headers['x-cg-demo-api-key'], 'my-demo-key');
 });
 
@@ -74,7 +74,7 @@ test('fetchCoinExchanges uses the Pro host/header for a Pro key, same as the mai
         fetchImpl: () => Promise.resolve({ status: 200, json: () => Promise.resolve({ name: 'Bitcoin', tickers: tickerFixture(1) }) })
     });
     await send(sandbox, { action: 'fetchCoinExchanges', coinId: 'bitcoin' });
-    assert.equal(sandbox.calls[0].url, 'https://pro-api.coingecko.com/api/v3/coins/bitcoin/tickers?order=volume_desc&include_exchange_logo=true');
+    assert.equal(sandbox.calls[0].url, 'https://pro-api.coingecko.com/api/v3/coins/bitcoin/tickers?order=trust_score_desc&include_exchange_logo=true');
     assert.equal(sandbox.calls[0].options.headers['x-cg-pro-api-key'], 'my-pro-key');
 });
 

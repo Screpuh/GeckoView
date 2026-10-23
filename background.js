@@ -126,11 +126,18 @@ function handleListEndpointRequest(message, sendResponse, { pathSegment, cache, 
 
 // Where this coin actually trades (https://docs.coingecko.com/reference/coins-id-tickers) -
 // unlike News/Insights, this is on the regular Demo/Pro host+header split (works for everyone,
-// including keyless) and is genuinely coin-specific at the API level (order=volume_desc server
-// side, then a client-side top-10 slice). This is deliberately NOT how a "Derivatives" tab would
-// have to work: /derivatives has no coin filter or sort at all - the only way to get per-coin
-// results would be downloading its full ~10MB unfiltered list and matching client-side, which is
-// why there's no Derivatives tab here.
+// including keyless) and is genuinely coin-specific at the API level (order=trust_score_desc,
+// CoinGecko's own documented default, server side, then a client-side top-10 slice). This is
+// deliberately NOT how a "Derivatives" tab would have to work: /derivatives has no coin filter or
+// sort at all - the only way to get per-coin results would be downloading its full ~10MB
+// unfiltered list and matching client-side, which is why there's no Derivatives tab here.
+//
+// Note: confirmed live (keyless) that the per-ticker `trust_score` field itself always comes back
+// null, and that order=trust_score_desc currently returns the identical ordering as
+// order=volume_desc on this tier - so don't be surprised if this looks like "nothing changed" when
+// debugging. It's still the behavior CoinGecko's own API documents as the default, and may differ
+// for Pro-tier requests or change as their scoring does, so it's used as requested rather than
+// reverting to volume_desc just because the two happen to coincide right now.
 function handleExchangesRequest(message, sendResponse) {
     const coinId = message.coinId;
     const cached = exchangesCache.get(coinId);
@@ -143,7 +150,7 @@ function handleExchangesRequest(message, sendResponse) {
         const fetchOptions = buildCoinGeckoFetchOptions(settings.apiKey, settings.apiKeyType);
         const baseUrl = getCoinGeckoBaseUrl(settings.apiKeyType);
 
-        fetch(`${baseUrl}/coins/${encodeURIComponent(coinId)}/tickers?order=volume_desc&include_exchange_logo=true`, fetchOptions)
+        fetch(`${baseUrl}/coins/${encodeURIComponent(coinId)}/tickers?order=trust_score_desc&include_exchange_logo=true`, fetchOptions)
             .then(parseCoinGeckoResponse)
             .then(data => {
                 if (!data || !Array.isArray(data.tickers)) {

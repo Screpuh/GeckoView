@@ -272,10 +272,18 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
   button/label, and one in `GV_LAZY_TAB_CONFIG` for how to fetch and render
   it (`action`, `requiresPro`, `label`, `build`).
   - **Exchanges** (`fetchCoinExchanges` → `handleExchangesRequest()`) uses
-    `/coins/{id}/tickers?order=volume_desc&include_exchange_logo=true`
-    (https://docs.coingecko.com/reference/coins-id-tickers) — server-side
-    sorted by 24h volume descending, sliced to the top 10 client-side (not
-    re-sorted; CoinGecko's own ordering is trusted as-is).
+    `/coins/{id}/tickers?order=trust_score_desc&include_exchange_logo=true`
+    (https://docs.coingecko.com/reference/coins-id-tickers) —
+    `trust_score_desc` is CoinGecko's own documented default order, sorted
+    server-side, sliced to the top 10 client-side (not re-sorted;
+    CoinGecko's own ordering is trusted as-is). Note: confirmed live
+    (keyless) that the per-ticker `trust_score` field itself always comes
+    back `null`, and that `order=trust_score_desc` currently returns an
+    identical ordering to `order=volume_desc` on this tier — used anyway
+    since it's what CoinGecko's API documents as the default and may differ
+    for Pro-tier requests or change over time; reverting to `volume_desc`
+    just because the two currently coincide would be papering over the
+    documented behavior rather than relying on it.
     `include_exchange_logo=true` adds `market.logo`, rendered by
     `buildExchangesTabContent()` as a small circular icon (falls back to a
     plain colored circle via CSS, not a broken-image icon, when a ticker
