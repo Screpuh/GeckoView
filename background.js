@@ -124,6 +124,46 @@ function handleListEndpointRequest(message, sendResponse, { pathSegment, cache, 
     });
 }
 
+// Where this coin actually trades (https://docs.coingecko.com/reference/coins-id-tickers) -
+// unlike News/Insights, this is on the regular Demo/Pro host+header split (works for everyone,
+// including keyless) and is genuinely coin-specific at the API level (order=volume_desc server
+// side, then a client-side top-10 slice). This is deliberately NOT how a "Derivatives" tab would
+// have to work: /derivatives has no coin filter or sort at all - the only way to get per-coin
+// results would be downloading its full ~10MB unfiltered list and matching client-side, which is
+// why there's no Derivatives tab here.
+function handleExchangesRequest(message, sendResponse) {
+    const coinId = message.coinId;
+    const cached = exchangesCache.get(coinId);
+    if (cached) {
+        sendResponse({ success: true, data: cached });
+        return;
+    }
+
+    getGeckoViewSettings().then(settings => {
+        const fetchOptions = buildCoinGeckoFetchOptions(settings.apiKey, settings.apiKeyType);
+        const baseUrl = getCoinGeckoBaseUrl(settings.apiKeyType);
+
+        fetch(`${baseUrl}/coins/${encodeURIComponent(coinId)}/tickers?order=volume_desc`, fetchOptions)
+            .then(parseCoinGeckoResponse)
+            .then(data => {
+                if (!data || !Array.isArray(data.tickers)) {
+                    return Promise.reject(coinGeckoError((data && data.error) || 'CoinGecko returned an unexpected response. Please try again.'));
+                }
+                return data.tickers.slice(0, 10);
+            })
+            .then(topTickers => {
+                exchangesCache.set(coinId, topTickers);
+                sendResponse({ success: true, data: topTickers });
+            })
+            .catch(error => {
+                const message = (error && error.isGeckoViewError)
+                    ? error.message
+                    : 'Could not reach CoinGecko. Check your internet connection and try again.';
+                sendResponse({ success: false, error: message });
+            });
+    });
+}
+
 // The chrome.* APIs only exist in the extension runtime, not in the Node test runner,
 // so this registration is skipped there (see test/formatTradingPair.test.js).
 if (typeof chrome !== 'undefined') {
@@ -222,6 +262,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true;
     }
 
+    if (message.action === 'fetchCoinExchanges') {
+        handleExchangesRequest(message, sendResponse);
+        return true;
+    }
+
     if (message.action === 'fetchCoinNews') {
         handleListEndpointRequest(message, sendResponse, { pathSegment: 'news', cache: newsCache, featureLabel: 'News' });
         return true;
@@ -267,6 +312,7 @@ function createTtlCache(ttlMs) {
 }
 
 const coinDataCache = createTtlCache(COIN_DATA_CACHE_TTL_MS);
+const exchangesCache = createTtlCache(COIN_DATA_CACHE_TTL_MS);
 const newsCache = createTtlCache(COIN_DATA_CACHE_TTL_MS);
 const insightsCache = createTtlCache(COIN_DATA_CACHE_TTL_MS);
 
@@ -311,6 +357,7 @@ if (typeof module !== 'undefined' && module.exports) {
         formatTradingPair, getCachedCoinData, setCachedCoinData, COIN_DATA_CACHE_TTL_MS,
         buildCoinGeckoFetchOptions, getCoinGeckoBaseUrl, COINGECKO_DEMO_BASE_URL, COINGECKO_PRO_BASE_URL,
         COINGECKO_HTTP_ERROR_MESSAGES, parseCoinGeckoResponse, isValidCoinData,
-        createTtlCache, newsCache, insightsCache, fetchCoinGeckoJsonArray, handleListEndpointRequest
+        createTtlCache, newsCache, insightsCache, exchangesCache,
+        fetchCoinGeckoJsonArray, handleListEndpointRequest, handleExchangesRequest
     };
 }

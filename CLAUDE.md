@@ -67,9 +67,10 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
   the "Key stats" tab's content via `buildKeyStatsTabContent()`
   (`isStatVisible()`/`buildStatRow()` conditionally include each row based
   on `settings`, see `settings.js`; omitting `settings` shows every stat).
-  `buildNewsTabContent()`/`buildInsightsTabContent()`/`buildProUpsell()`
-  render the other two tabs, called lazily from `content.js` on tab click,
-  not from `buildHtmlResponse()` itself.
+  `buildExchangesTabContent()`/`buildNewsTabContent()`/
+  `buildInsightsTabContent()`/`buildProUpsell()` render the other tabs,
+  called lazily from `content.js` on tab click, not from
+  `buildHtmlResponse()` itself.
 - `content.js` — Runs on TradingView chart pages. Reads settings on load via
   `getGeckoViewSettings()` and bails out entirely if `enabled` is false (the
   master toggle only takes effect on page load/refresh). Otherwise watches
@@ -258,35 +259,58 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
   not `chrome.storage`: the cache is allowed to be lost when the MV3
   service worker is evicted (idle), that just costs one extra fetch, not a
   correctness issue, so a plain `Map` is simpler and sufficient.
-- **Categories row + News/Insights tabs.** `data.categories` (plain string
-  array, included by default in `/coins/{id}` — no extra API call) can be
-  anywhere from empty to 20+ entries; `buildCategoriesRow()` hides the whole
-  row for zero, and caps rendering at `GV_MAX_VISIBLE_CATEGORIES` (6) with a
-  "+N more" pill so one heavily-tagged coin can't blow out the widget's
-  height. The widget has three tabs (`GV_TABS` in `templates.js`): "Key
-  stats" (always available, rendered from the already-fetched coin data,
-  no extra fetch), "News", and "Insights"
-  (https://docs.coingecko.com/reference/news,
-  https://docs.coingecko.com/reference/insights). **News/Insights require a
-  paid CoinGecko plan** (Analyst/Lite/Pro/Enterprise — not Demo, not
-  keyless) and only exist on the Pro host; `content.js` checks
-  `apiKeyType === 'pro'` client-side before ever sending a
-  `fetchCoinNews`/`fetchCoinInsights` message, showing `buildProUpsell()`
-  instead for anyone else, so a non-Pro user's click never fires a doomed
-  request. For Pro users, the tab's content is fetched lazily (only on
-  first click, not with the main coin data) via
-  `handleListEndpointRequest()` in `background.js`, which always targets
-  `COINGECKO_PRO_BASE_URL` with the `x-cg-pro-api-key` header regardless of
-  the user's `apiKeyType` setting (defense in depth — `content.js` already
-  gated this, but a stale/raced settings read reaching `background.js`
-  shouldn't be able to misfire against the wrong host) and caches results
-  per coin id in `newsCache`/`insightsCache`
-  (`createTtlCache(COIN_DATA_CACHE_TTL_MS)`, same TTL as coin data) so
-  flipping tabs back and forth doesn't re-fetch. `content.js` tracks
-  `currentCoinData`/`activeTab` at module scope and guards the async
-  response against staleness (`activeTab !== tabId || currentCoinData.id
-  !== coinId`) so a slow News/Insights response can't render over a symbol
-  the user has since navigated away from.
+- **Categories row + the tab system (Key stats / Exchanges / News /
+  Insights).** `data.categories` (plain string array, included by default in
+  `/coins/{id}` — no extra API call) can be anywhere from empty to 20+
+  entries; `buildCategoriesRow()` hides the whole row for zero, and caps
+  rendering at `GV_MAX_VISIBLE_CATEGORIES` (6) with a "+N more" pill so one
+  heavily-tagged coin can't blow out the widget's height. `GV_TABS`
+  (`templates.js`) lists the tabs; `GV_LAZY_TAB_CONFIG` (`content.js`) is
+  the per-tab fetch/gating config for everything except "Key stats" (always
+  available, rendered from the already-fetched coin data, no extra fetch).
+  Adding a tab means touching both: an entry in `GV_TABS` for the nav
+  button/label, and one in `GV_LAZY_TAB_CONFIG` for how to fetch and render
+  it (`action`, `requiresPro`, `label`, `build`).
+  - **Exchanges** (`fetchCoinExchanges` → `handleExchangesRequest()`) uses
+    `/coins/{id}/tickers?order=volume_desc`
+    (https://docs.coingecko.com/reference/coins-id-tickers), sliced to the
+    top 10 client-side. Confirmed live (plain `curl`, no key) that this is
+    small (~65KB) and fast (~0.25s) regardless of coin, and works on the
+    regular Demo/keyless host — so, unlike News/Insights, there's no
+    `requiresPro` gate; it uses the same `getCoinGeckoBaseUrl`/
+    `buildCoinGeckoFetchOptions(settings.apiKey, settings.apiKeyType)` split
+    as the main coin fetch, not a hardcoded Pro host.
+  - **News/Insights** (https://docs.coingecko.com/reference/news,
+    https://docs.coingecko.com/reference/insights) **require a paid
+    CoinGecko plan** (Analyst/Lite/Pro/Enterprise — not Demo, not keyless)
+    and only exist on the Pro host; `content.js` checks `apiKeyType ===
+    'pro'` client-side (`GV_LAZY_TAB_CONFIG[tabId].requiresPro`) before ever
+    sending the message, showing `buildProUpsell()` instead for anyone
+    else, so a non-Pro user's click never fires a doomed request. For Pro
+    users, `handleListEndpointRequest()` in `background.js` always targets
+    `COINGECKO_PRO_BASE_URL` with the `x-cg-pro-api-key` header regardless
+    of the user's `apiKeyType` setting (defense in depth — `content.js`
+    already gated this, but a stale/raced settings read reaching
+    `background.js` shouldn't be able to misfire against the wrong host).
+  - **Why there's no "Derivatives" tab, even though it was considered:**
+    `/derivatives` (https://docs.coingecko.com/reference/derivatives-tickers)
+    has no coin filter and no pagination at all — confirmed live that one
+    call returns the *entire* ~28,000-contract, ~9.7MB global list, every
+    time, with no server-side way to narrow it to one coin. Its `index_id`
+    field is a ticker symbol (e.g. `"BTC"`), not a CoinGecko id, and isn't
+    even a 1:1 match (e.g. Kraken/Deribit's `XBT` for Bitcoin wouldn't match
+    a plain `symbol === 'BTC'` filter) — so a coin-specific tab would mean
+    downloading and client-side-filtering that whole payload on every
+    (uncached) use. Ruled out as not actually "fetching per coin" in any
+    meaningful sense, unlike the three tabs above.
+  - All three lazy tabs cache their results per coin id
+    (`exchangesCache`/`newsCache`/`insightsCache`, all
+    `createTtlCache(COIN_DATA_CACHE_TTL_MS)`, same TTL as coin data) so
+    flipping tabs back and forth doesn't re-fetch. `content.js` tracks
+    `currentCoinData`/`activeTab` at module scope and guards every async tab
+    response against staleness (`activeTab !== tabId || currentCoinData.id
+    !== coinId`) so a slow response can't render over a symbol the user has
+    since navigated away from.
 - **Untrusted data rendered via `innerHTML`.** All CoinGecko response fields
   (`data.name`, `data.symbol`, `data.id`, `data.image.thumb`, social links,
   etc.) are interpolated directly into HTML strings and assigned via

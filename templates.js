@@ -1,6 +1,6 @@
 // HTML template builders for the GeckoView widget panel. Depends on the helpers in utils.js
-// (escapeHtml, displayPrice, formatCirculatingPercentage, formatDateOrEmpty) being loaded first
-// — see manifest.json.
+// (escapeHtml, displayPrice, formatCirculatingPercentage, formatCompactUsd, formatDateOrEmpty)
+// being loaded first — see manifest.json.
 //
 // Styling note: this is a fully self-contained design (its own "gv-*" classes and CSS custom
 // properties), not styled by piggybacking on TradingView's own CSS classes. TradingView's class
@@ -221,13 +221,15 @@ function buildGeckoViewStyles() {
             }
 
             #crypto-info-geckoview .gv-news-list,
+            #crypto-info-geckoview .gv-exchange-list,
             #crypto-info-geckoview .gv-insights-list {
                 display: flex;
                 flex-direction: column;
                 gap: 10px;
             }
 
-            #crypto-info-geckoview .gv-news-item {
+            #crypto-info-geckoview .gv-news-item,
+            #crypto-info-geckoview .gv-exchange-item {
                 display: block;
                 text-decoration: none;
                 color: inherit;
@@ -236,12 +238,14 @@ function buildGeckoViewStyles() {
             }
 
             #crypto-info-geckoview .gv-news-item:last-child,
+            #crypto-info-geckoview .gv-exchange-item:last-child,
             #crypto-info-geckoview .gv-insight-item:last-child {
                 border-bottom: none;
                 padding-bottom: 0;
             }
 
             #crypto-info-geckoview .gv-news-item__title,
+            #crypto-info-geckoview .gv-exchange-item__title,
             #crypto-info-geckoview .gv-insight-item__title {
                 display: block;
                 font-size: 12.5px;
@@ -250,11 +254,13 @@ function buildGeckoViewStyles() {
                 margin-bottom: 2px;
             }
 
-            #crypto-info-geckoview .gv-news-item:hover .gv-news-item__title {
+            #crypto-info-geckoview .gv-news-item:hover .gv-news-item__title,
+            #crypto-info-geckoview .gv-exchange-item:hover .gv-exchange-item__title {
                 color: var(--gv-accent);
             }
 
             #crypto-info-geckoview .gv-news-item__meta,
+            #crypto-info-geckoview .gv-exchange-item__meta,
             #crypto-info-geckoview .gv-insight-item__meta {
                 display: block;
                 font-size: 11px;
@@ -451,6 +457,7 @@ function buildCategoriesRow(categories) {
 // their content isn't fetched until clicked, so only their nav button is built here.
 const GV_TABS = [
     { id: 'stats', label: 'Key stats' },
+    { id: 'exchanges', label: 'Exchanges' },
     { id: 'news', label: 'News' },
     { id: 'insights', label: 'Insights' }
 ];
@@ -489,6 +496,38 @@ function buildNewsTabContent(items) {
     }).join('');
 
     return `<div class="gv-news-list">${rows}</div>`;
+}
+
+// `tickers` is the (already top-N-capped, see background.js) list from CoinGecko's
+// /coins/{id}/tickers - where this specific coin actually trades, not a generic exchange
+// directory. trust_score is frequently null for smaller venues, so it's shown only when present.
+function buildExchangesTabContent(tickers) {
+    if (!Array.isArray(tickers) || tickers.length === 0) {
+        return `<p class="gv-empty-state">No exchange listings found for this coin.</p>`;
+    }
+
+    const rows = tickers.map(ticker => {
+        const market = ticker.market || {};
+        const pair = [ticker.base, ticker.target].filter(Boolean).join('/');
+        const title = [market.name, pair].filter(Boolean).join(' · ');
+
+        const priceUsd = ticker.converted_last && ticker.converted_last.usd;
+        const volumeUsd = ticker.converted_volume && ticker.converted_volume.usd;
+        const meta = [
+            (priceUsd === null || priceUsd === undefined) ? null : displayPrice(priceUsd),
+            (volumeUsd === null || volumeUsd === undefined) ? null : `Vol ${formatCompactUsd(volumeUsd)}`
+        ].filter(Boolean).join(' · ');
+
+        const content = `
+                <span class="gv-exchange-item__title">${escapeHtml(title)}</span>
+                <span class="gv-exchange-item__meta">${escapeHtml(meta)}</span>`;
+
+        return ticker.trade_url
+            ? `<a class="gv-exchange-item" href="${escapeHtml(ticker.trade_url)}" target="_blank">${content}</a>`
+            : `<div class="gv-exchange-item">${content}</div>`;
+    }).join('');
+
+    return `<div class="gv-exchange-list">${rows}</div>`;
 }
 
 function buildInsightsTabContent(items) {

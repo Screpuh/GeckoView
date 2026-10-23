@@ -56,6 +56,16 @@ function displayPrice(price) {
     }
 }
 
+// Formats a USD amount compactly (e.g. "$4.1B", "$65.6K") for places like the Exchanges tab's
+// volume figures, where the full formatUsdOrNA-style comma-grouped number would be too wide for a
+// one-line meta row. 'N/A' for a missing value, same convention as the other formatOrNA helpers.
+function formatCompactUsd(value) {
+    if (value === null || value === undefined) {
+        return 'N/A';
+    }
+    return new Intl.NumberFormat('en-EN', { style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 1 }).format(value);
+}
+
 // Formats an ISO 8601 timestamp (e.g. news/insights `posted_at`) as a short locale date string,
 // or '' for a missing/invalid value - callers can treat '' as "omit this piece of metadata".
 function formatDateOrEmpty(isoString) {
@@ -80,5 +90,5 @@ function isAdBlockerDialogText(text) {
 
 // Expose for the Node test runner (no-op in the browser extension context, where `module` is undefined).
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { sleep, calculatePercentageOfTotal, formatCirculatingPercentage, escapeHtml, displayPrice, formatDateOrEmpty, isAdBlockerDialogText };
+    module.exports = { sleep, calculatePercentageOfTotal, formatCirculatingPercentage, escapeHtml, displayPrice, formatCompactUsd, formatDateOrEmpty, isAdBlockerDialogText };
 }

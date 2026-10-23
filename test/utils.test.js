@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { calculatePercentageOfTotal, formatCirculatingPercentage, escapeHtml, displayPrice, formatDateOrEmpty, isAdBlockerDialogText } = require('../utils.js');
+const { calculatePercentageOfTotal, formatCirculatingPercentage, escapeHtml, displayPrice, formatCompactUsd, formatDateOrEmpty, isAdBlockerDialogText } = require('../utils.js');
 
 test('calculatePercentageOfTotal computes a floored percentage', () => {
     assert.equal(calculatePercentageOfTotal(19000000, 21000000), 90);
@@ -76,4 +76,14 @@ test('isAdBlockerDialogText does not match an unrelated "upgrade to Pro" dialog'
     assert.equal(isAdBlockerDialogText(''), false);
     assert.equal(isAdBlockerDialogText(null), false);
     assert.equal(isAdBlockerDialogText(undefined), false);
+});
+
+test('formatCompactUsd formats large numbers compactly', () => {
+    assert.equal(formatCompactUsd(4062283991), '$4.1B');
+    assert.equal(formatCompactUsd(65629), '$65.6K');
+});
+
+test('formatCompactUsd returns N/A for a missing value', () => {
+    assert.equal(formatCompactUsd(null), 'N/A');
+    assert.equal(formatCompactUsd(undefined), 'N/A');
 });

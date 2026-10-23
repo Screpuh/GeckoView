@@ -195,10 +195,21 @@ function updateCryptoContent() {
     }
 }
 
-// Switches the widget's tab content area to `tabId` ("stats"/"news"/"insights"). "stats" re-renders
-// instantly from the already-fetched coin data; "news"/"insights" are fetched lazily on first
-// click (background.js caches the result, so flipping back later is still fast) and gated on the
-// user having a Pro-type API key client-side, so a Demo/no-key user never fires a doomed request.
+// Config for every tab beyond "stats" (which always renders instantly from already-fetched coin
+// data, no fetch needed). `requiresPro: true` (News/Insights) means content.js checks client-side
+// for a Pro-type key before ever sending the message, so a Demo/no-key user's click never fires a
+// doomed request against an endpoint their key can't use; Exchanges has no such gate (works for
+// everyone, including keyless - see the handleExchangesRequest() comment in background.js for why
+// Derivatives isn't a tab here at all).
+const GV_LAZY_TAB_CONFIG = {
+    exchanges: { action: 'fetchCoinExchanges', requiresPro: false, label: 'Exchanges', build: buildExchangesTabContent },
+    news: { action: 'fetchCoinNews', requiresPro: true, label: 'News', build: buildNewsTabContent },
+    insights: { action: 'fetchCoinInsights', requiresPro: true, label: 'Insights', build: buildInsightsTabContent }
+};
+
+// Switches the widget's tab content area to `tabId`. "stats" re-renders instantly from the
+// already-fetched coin data; every other tab is fetched lazily on first click (background.js
+// caches the result per coin, so flipping back later is still fast).
 function renderTab(tabId) {
     const geckoViewDiv = document.querySelector('#crypto-info-geckoview');
     if (!geckoViewDiv || !currentCoinData) {
@@ -220,10 +231,17 @@ function renderTab(tabId) {
         return;
     }
 
-    const hasProKey = geckoViewSettings.apiKeyType === 'pro' && !!(geckoViewSettings.apiKey || '').trim();
-    if (!hasProKey) {
-        contentEl.innerHTML = buildProUpsell(tabId === 'news' ? 'News' : 'Insights');
+    const tabConfig = GV_LAZY_TAB_CONFIG[tabId];
+    if (!tabConfig) {
         return;
+    }
+
+    if (tabConfig.requiresPro) {
+        const hasProKey = geckoViewSettings.apiKeyType === 'pro' && !!(geckoViewSettings.apiKey || '').trim();
+        if (!hasProKey) {
+            contentEl.innerHTML = buildProUpsell(tabConfig.label);
+            return;
+        }
     }
 
     const coinId = currentCoinData.id;
@@ -235,8 +253,7 @@ function renderTab(tabId) {
     }
 
     try {
-        const action = tabId === 'news' ? 'fetchCoinNews' : 'fetchCoinInsights';
-        chrome.runtime.sendMessage({ action, coinId }, response => {
+        chrome.runtime.sendMessage({ action: tabConfig.action, coinId }, response => {
             // The user may have switched tabs or symbols while this was in flight - only apply a
             // stale response if it's still relevant to what's currently on screen.
             if (activeTab !== tabId || !currentCoinData || currentCoinData.id !== coinId) {
@@ -258,7 +275,7 @@ function renderTab(tabId) {
                 return;
             }
 
-            freshContentEl.innerHTML = tabId === 'news' ? buildNewsTabContent(response.data) : buildInsightsTabContent(response.data);
+            freshContentEl.innerHTML = tabConfig.build(response.data);
         });
     } catch (error) {
         contentEl.innerHTML = `<p class="gv-error">GeckoView was updated — refresh this page to keep using it.</p>`;

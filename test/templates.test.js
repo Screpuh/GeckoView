@@ -56,9 +56,10 @@ test('buildCategoriesRow escapes category text', () => {
     assert.ok(html.includes('&lt;script&gt;'));
 });
 
-test('buildTabsNav includes all three tabs and marks only the active one', () => {
+test('buildTabsNav includes all four tabs and marks only the active one', () => {
     const html = T.buildTabsNav('news');
     assert.ok(html.includes('data-gv-tab="stats"'));
+    assert.ok(html.includes('data-gv-tab="exchanges"'));
     assert.ok(html.includes('data-gv-tab="news"'));
     assert.ok(html.includes('data-gv-tab="insights"'));
     assert.ok(html.includes('gv-tab--active" data-gv-tab="news"'));
@@ -88,6 +89,45 @@ test('buildNewsTabContent renders title/url/source/date for each article', () =>
 
 test('buildNewsTabContent escapes article fields (untrusted CoinGecko data)', () => {
     const html = T.buildNewsTabContent([{ title: '<img onerror=alert(1)>', url: 'https://example.com', source_name: 'x' }]);
+    assert.ok(!html.includes('<img onerror'));
+});
+
+test('buildExchangesTabContent shows an empty-state message for no/missing tickers', () => {
+    assert.ok(T.buildExchangesTabContent([]).includes('No exchange listings'));
+    assert.ok(T.buildExchangesTabContent(null).includes('No exchange listings'));
+    assert.ok(T.buildExchangesTabContent(undefined).includes('No exchange listings'));
+});
+
+test('buildExchangesTabContent renders exchange/pair/price/volume for each ticker as a link', () => {
+    const html = T.buildExchangesTabContent([{
+        market: { name: 'Binance' }, base: 'BTC', target: 'USDT',
+        converted_last: { usd: 81656 }, converted_volume: { usd: 4062283991 },
+        trade_url: 'https://www.binance.com/trade/BTC_USDT'
+    }]);
+    assert.ok(html.includes('Binance'));
+    assert.ok(html.includes('BTC/USDT'));
+    assert.ok(html.includes('https://www.binance.com/trade/BTC_USDT'));
+    assert.ok(html.includes('$81,656'));
+    assert.ok(html.includes('$4.1B'));
+    assert.ok(html.includes('<a class="gv-exchange-item"'));
+});
+
+test('buildExchangesTabContent falls back to a non-link row when trade_url is missing', () => {
+    const html = T.buildExchangesTabContent([{ market: { name: 'Example' }, base: 'BTC', target: 'USDT' }]);
+    assert.ok(html.includes('<div class="gv-exchange-item">'));
+    assert.ok(!html.includes('<a class="gv-exchange-item"'));
+});
+
+test('buildExchangesTabContent omits price/volume from the meta line when absent', () => {
+    const html = T.buildExchangesTabContent([{ market: { name: 'Example' }, base: 'BTC', target: 'USDT' }]);
+    assert.ok(!html.includes('Vol'));
+});
+
+test('buildExchangesTabContent escapes untrusted CoinGecko fields', () => {
+    const html = T.buildExchangesTabContent([{
+        market: { name: '<img onerror=alert(1)>' }, base: 'BTC', target: 'USDT',
+        trade_url: 'https://example.com'
+    }]);
     assert.ok(!html.includes('<img onerror'));
 });
 
