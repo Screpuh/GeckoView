@@ -21,10 +21,6 @@ function buildGeckoViewStyles() {
                 --gv-pill-bg-hover: #e3e9f2;
                 --gv-accent: #2962ff;
                 --gv-danger: #e04b4b;
-                --gv-up: #16a34a;
-                --gv-up-bg: #e9f9ef;
-                --gv-down: #e04b4b;
-                --gv-down-bg: #fdeaea;
                 font-family: -apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, Helvetica, Arial, sans-serif;
                 font-size: 13px;
                 line-height: 1.4;
@@ -39,10 +35,6 @@ function buildGeckoViewStyles() {
                 --gv-border: #2a2e39;
                 --gv-pill-bg: #2a2e39;
                 --gv-pill-bg-hover: #363a45;
-                --gv-up: #3dd68c;
-                --gv-up-bg: rgba(61, 214, 140, 0.15);
-                --gv-down: #f26868;
-                --gv-down-bg: rgba(242, 104, 104, 0.15);
             }
 
             #crypto-info-geckoview * {
@@ -117,52 +109,6 @@ function buildGeckoViewStyles() {
                 width: 18px;
                 height: 18px;
                 display: block;
-            }
-
-            #crypto-info-geckoview .gv-price-row {
-                display: flex;
-                align-items: baseline;
-                gap: 8px;
-                margin-top: 6px;
-            }
-
-            #crypto-info-geckoview .gv-price {
-                font-size: 19px;
-                font-weight: 700;
-                color: var(--gv-text);
-            }
-
-            #crypto-info-geckoview .gv-price-change {
-                font-size: 12px;
-                font-weight: 600;
-                padding: 2px 6px;
-                border-radius: 4px;
-                flex-shrink: 0;
-            }
-
-            #crypto-info-geckoview .gv-price-change--up {
-                color: var(--gv-up);
-                background: var(--gv-up-bg);
-            }
-
-            #crypto-info-geckoview .gv-price-change--down {
-                color: var(--gv-down);
-                background: var(--gv-down-bg);
-            }
-
-            #crypto-info-geckoview .gv-price-change--na {
-                color: var(--gv-text-muted);
-                background: var(--gv-pill-bg);
-            }
-
-            #crypto-info-geckoview .gv-sparkline-wrap {
-                margin: 10px 0 2px;
-            }
-
-            #crypto-info-geckoview .gv-sparkline {
-                display: block;
-                width: 100%;
-                height: 36px;
             }
 
             #crypto-info-geckoview .gv-links {
@@ -271,28 +217,6 @@ const GV_ICON_X = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 const GV_ICON_SEND = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"></path><path d="M22 2l-7 20-4-9-9-4 20-7z"></path></svg>`;
 const GV_ICON_CHAT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>`;
 
-// Renders CoinGecko's 7-day hourly price series (market_data.sparkline_in_7d.price) as a plain
-// SVG polyline, colored to match the 24h trend direction shown in the price-change badge next
-// to it. Returns '' when there's no usable price series (missing field, too few points, etc.)
-// — buildSparklinePoints (utils.js) is what actually decides "usable".
-function buildSparklineSvg(prices, isUp) {
-    const width = 100;
-    const height = 36;
-    const points = buildSparklinePoints(prices, width, height);
-    if (!points) {
-        return '';
-    }
-
-    const strokeVar = isUp ? 'var(--gv-up)' : 'var(--gv-down)';
-    return `
-        <div class="gv-sparkline-wrap">
-            <svg class="gv-sparkline" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
-                <polyline points="${points}" fill="none" stroke="${strokeVar}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"></polyline>
-            </svg>
-        </div>
-    `;
-}
-
 // Shared widget header, used by every response variant below. When `coin` is omitted this
 // renders the plain "GeckoView" title (default/loading/error states); when provided it renders
 // the coin's logo, name, symbol and market cap rank instead (successful data state).
@@ -372,18 +296,6 @@ function buildHtmlResponse(data) {
 
     const circulatingPercentage = formatCirculatingPercentage(data.market_data.circulating_supply, data.market_data.total_supply);
 
-    // CoinGecko's own "is this up or down" number (24h %). Used for both the badge and to color
-    // the sparkline, so the two always agree even if the 7-day trend line disagrees with the 24h one.
-    const currentPrice = data.market_data.current_price && data.market_data.current_price.usd;
-    const priceChangePct = data.market_data.price_change_percentage_24h;
-    const hasChangePct = typeof priceChangePct === 'number' && Number.isFinite(priceChangePct);
-    const isUp = !hasChangePct || priceChangePct >= 0;
-    const changeClass = !hasChangePct ? 'gv-price-change--na' : (isUp ? 'gv-price-change--up' : 'gv-price-change--down');
-    const changeText = !hasChangePct ? 'N/A' : `${priceChangePct >= 0 ? '+' : ''}${priceChangePct.toFixed(2)}%`;
-
-    const sparklinePrices = data.market_data.sparkline_in_7d && data.market_data.sparkline_in_7d.price;
-    const sparklineSvg = buildSparklineSvg(sparklinePrices, isUp);
-
     return `
         ${buildGeckoViewStyles()}
         ${buildWidgetHeader({
@@ -393,11 +305,6 @@ function buildHtmlResponse(data) {
             symbol: data.symbol.toUpperCase(),
             rank: data.market_cap_rank
         })}
-        <div class="gv-price-row">
-            <span class="gv-price">${displayPrice(currentPrice)}</span>
-            <span class="gv-price-change ${changeClass}">${changeText}</span>
-        </div>
-        ${sparklineSvg}
         ${linksRow}
 
         <div class="gv-section-title">Key stats</div>

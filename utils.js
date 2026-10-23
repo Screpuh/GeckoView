@@ -56,37 +56,7 @@ function displayPrice(price) {
     }
 }
 
-// Converts a series of prices into an SVG polyline "x,y x,y ..." points string, scaled to fit
-// a width x height box (minus padding on every side). Non-finite entries (CoinGecko's
-// sparkline_in_7d occasionally contains null/NaN gaps) are dropped before scaling. Returns null
-// when there are fewer than 2 usable points to draw a line through.
-function buildSparklinePoints(values, width, height, padding = 2) {
-    if (!Array.isArray(values)) {
-        return null;
-    }
-
-    const clean = values.filter(v => typeof v === 'number' && Number.isFinite(v));
-    if (clean.length < 2) {
-        return null;
-    }
-
-    const min = Math.min(...clean);
-    const max = Math.max(...clean);
-    const range = max - min || 1; // flat line (min === max): avoid dividing by zero
-    const innerWidth = width - padding * 2;
-    const innerHeight = height - padding * 2;
-    const step = innerWidth / (clean.length - 1);
-
-    return clean
-        .map((v, i) => {
-            const x = padding + i * step;
-            const y = padding + innerHeight - ((v - min) / range) * innerHeight;
-            return `${x.toFixed(2)},${y.toFixed(2)}`;
-        })
-        .join(' ');
-}
-
 // Expose for the Node test runner (no-op in the browser extension context, where `module` is undefined).
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { sleep, calculatePercentageOfTotal, formatCirculatingPercentage, escapeHtml, displayPrice, buildSparklinePoints };
+    module.exports = { sleep, calculatePercentageOfTotal, formatCirculatingPercentage, escapeHtml, displayPrice };
 }

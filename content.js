@@ -1,5 +1,10 @@
 // This script will run on the page and will be responsible for fetching the data from the coingecko api.
 // Depends on helpers from utils.js and templates.js, loaded first — see manifest.json.
+
+// Set once the MutationObserver is attached, so updateCryptoContent() can stop it (see
+// isExtensionContextValid() below) once the extension context is gone and retrying is pointless.
+let geckoViewObserver = null;
+
 window.onload = function() {
     // This code will run when the entire page has finished loading, including stylesheets, images, etc.
     const existingDiv = document.querySelector('.widgetbar-page.active');
@@ -31,8 +36,8 @@ window.onload = function() {
             return;
         }
 
-        const observer = new MutationObserver(handleMutation);
-        observer.observe(targetElement, {
+        geckoViewObserver = new MutationObserver(handleMutation);
+        geckoViewObserver.observe(targetElement, {
             childList: true,      // Watch for changes in child elements
             subtree: true,        // Watch all descendants of targetElement
             attributes: true,     // Watch for attribute changes
@@ -40,11 +45,20 @@ window.onload = function() {
         });
 
         // Optionally, trigger the initial handling function
-        handleMutation([], observer); // Initial run
+        handleMutation([], geckoViewObserver); // Initial run
     }
 
     setupMutationObserver();
 };
+
+// Chrome tears down a content script's connection to the extension when the extension is
+// reloaded/updated/removed while the page is still open ("Extension context invalidated").
+// There is no way to recover without a full page reload, so this is checked before every fetch
+// attempt and used to stop the MutationObserver, instead of retrying and failing on every
+// subsequent symbol change.
+function isExtensionContextValid() {
+    return typeof chrome !== 'undefined' && !!chrome.runtime && !!chrome.runtime.id;
+}
 
 function updateCryptoContent() {
     // TradingView's "details" panel is identified by data-qa-id attributes, not the hashed
@@ -58,21 +72,40 @@ function updateCryptoContent() {
         return;
     }
 
+    if (!isExtensionContextValid()) {
+        geckoViewDiv.innerHTML = buildHtmlErrorResponse({ error: 'GeckoView was updated — refresh this page to keep using it.' });
+        if (geckoViewObserver) {
+            geckoViewObserver.disconnect();
+        }
+        return;
+    }
+
     // if the coin we found is a crypto, then we will fetch the data from coingecko
     if(type && type.textContent == 'Crypto' && target) {
         geckoViewDiv.innerHTML = buildLoaderHtmlResponse();
 
-        chrome.runtime.sendMessage({ action: 'fetchCoinData', coin: target.textContent }, response => {
-            if (!response.success) {
-                const test =  buildHtmlErrorResponse(response);
+        try {
+            chrome.runtime.sendMessage({ action: 'fetchCoinData', coin: target.textContent }, response => {
+                if (chrome.runtime.lastError) {
+                    geckoViewDiv.innerHTML = buildHtmlErrorResponse({ error: 'GeckoView was updated — refresh this page to keep using it.' });
+                    return;
+                }
+
+                if (!response.success) {
+                    const test =  buildHtmlErrorResponse(response);
+                    geckoViewDiv.innerHTML = test;
+                    return;
+                }
+
+                const test =  buildHtmlResponse(response.data);
                 geckoViewDiv.innerHTML = test;
-                return;
-            }
 
-            const test =  buildHtmlResponse(response.data);
-            geckoViewDiv.innerHTML = test;
-
-        });
+            });
+        } catch (error) {
+            // chrome.runtime.sendMessage throws synchronously when the context is invalidated
+            // mid-call (isExtensionContextValid() above only catches it ahead of time).
+            geckoViewDiv.innerHTML = buildHtmlErrorResponse({ error: 'GeckoView was updated — refresh this page to keep using it.' });
+        }
     } else {
         const test =  buildHtmlHeaderResponse();
         geckoViewDiv.innerHTML = test;
