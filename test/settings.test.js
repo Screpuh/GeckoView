@@ -2,8 +2,16 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { GV_DEFAULT_SETTINGS, GV_STAT_OPTIONS } = require('../settings.js');
 
+// Boolean settings that get their own hand-written checkbox in popup.html (not one generated
+// from GV_STAT_OPTIONS, which is only for the widget's Key stats rows).
+const NON_STAT_BOOLEAN_SETTINGS = ['enabled', 'autoCloseAdBlockerPopup'];
+
 test('GV_DEFAULT_SETTINGS has a boolean "enabled" master toggle', () => {
     assert.equal(typeof GV_DEFAULT_SETTINGS.enabled, 'boolean');
+});
+
+test('GV_DEFAULT_SETTINGS has a boolean "autoCloseAdBlockerPopup" toggle', () => {
+    assert.equal(typeof GV_DEFAULT_SETTINGS.autoCloseAdBlockerPopup, 'boolean');
 });
 
 test('every GV_STAT_OPTIONS key has a matching boolean default in GV_DEFAULT_SETTINGS', () => {
@@ -24,7 +32,7 @@ test('every boolean GV_DEFAULT_SETTINGS key other than "enabled" has a popup che
     // dedicated input in popup.html/popup.js instead of a checkbox, so they're excluded here.
     const optionKeys = new Set(GV_STAT_OPTIONS.map(o => o.key));
     for (const key of Object.keys(GV_DEFAULT_SETTINGS)) {
-        if (key === 'enabled' || typeof GV_DEFAULT_SETTINGS[key] !== 'boolean') {
+        if (NON_STAT_BOOLEAN_SETTINGS.includes(key) || typeof GV_DEFAULT_SETTINGS[key] !== 'boolean') {
             continue;
         }
         assert.ok(optionKeys.has(key), `"${key}" has a default but no GV_STAT_OPTIONS entry`);

@@ -39,14 +39,18 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
 - `utils.js` — Small, dependency-free pure helpers shared by `templates.js`
   and `content.js`: `sleep`, `calculatePercentageOfTotal`,
   `formatCirculatingPercentage`, `escapeHtml`, `displayPrice`,
-  `formatDateOrEmpty` (news/insights timestamps). Also exported via a
-  `typeof module` guard for Node tests.
+  `formatDateOrEmpty` (news/insights timestamps), `isAdBlockerDialogText`
+  (the matching rule for the ad-blocker-popup auto-closer, pulled out of
+  `content.js` purely so it's unit-testable without a DOM). Also exported
+  via a `typeof module` guard for Node tests.
 - `settings.js` — Settings schema (`GV_DEFAULT_SETTINGS`, `GV_STAT_OPTIONS`)
   and `chrome.storage.sync` helpers (`getGeckoViewSettings`,
   `setGeckoViewSetting`, `watchGeckoViewSettings`). Includes `apiKey` (string,
   default `''`) and `apiKeyType` (`'demo'` | `'pro'`, default `'demo'`) for
-  the optional user-supplied CoinGecko API key — see the API key
-  architecture note below. Loaded by both the content-script bundle, by
+  the optional user-supplied CoinGecko API key, and
+  `autoCloseAdBlockerPopup` (boolean, default `true`, unrelated to the
+  CoinGecko widget) — see their respective architecture notes below. Loaded
+  by both the content-script bundle, by
   `background.js` (via `importScripts`), and by `popup.html`, so all four
   always agree on what settings exist and default to. Only the two data
   structures are exported for Node tests — the `chrome.storage.*` wrappers
@@ -78,16 +82,20 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
   refresh (cheap since it just hits the `background.js` cache). Attaches one
   delegated click listener on the widget's root div (survives re-renders,
   since only its `innerHTML` is reassigned) to drive `renderTab()` — see the
-  Categories/tabs architecture note. Contains only DOM-watching/orchestration
-  logic — no HTML templates or pure utilities live here.
+  Categories/tabs architecture note. Also runs
+  `setupAdBlockerPopupAutoClose()` (if `autoCloseAdBlockerPopup` is set) —
+  see its own architecture note; this is independent of the CoinGecko
+  widget entirely. Contains only DOM-watching/orchestration logic — no HTML
+  templates or pure utilities live here.
 - `popup.html` / `popup.js` — The toolbar popup, now a real settings UI: a
-  master "Show on TradingView" toggle, one checkbox per `GV_STAT_OPTIONS`
-  entry (built dynamically, so adding a stat option only requires touching
-  `settings.js`), and an optional CoinGecko API key field with a Demo/Pro
-  key-type `<select>` next to it. Persists via `chrome.storage.sync` (syncs
-  across the user's signed-in Chrome profiles; trivial data volume, well
-  under sync quotas). MV3's popup CSP disallows inline `<script>`, so all
-  logic lives in `popup.js`, loaded after `settings.js`.
+  master "Show on TradingView" toggle, an "Auto-close ad-blocker popup"
+  toggle, one checkbox per `GV_STAT_OPTIONS` entry (built dynamically, so
+  adding a stat option only requires touching `settings.js`), and an
+  optional CoinGecko API key field with a Demo/Pro key-type `<select>` next
+  to it. Persists via `chrome.storage.sync` (syncs across the user's
+  signed-in Chrome profiles; trivial data volume, well under sync quotas).
+  MV3's popup CSP disallows inline `<script>`, so all logic lives in
+  `popup.js`, loaded after `settings.js`.
 - `icon-16.png` / `icon-48.png` / `icon-128.png` — extension icons.
 - `test/` — Node (`node:test`) unit tests for: the pure functions in
   `utils.js`; `formatTradingPair`, the response caches, the API
@@ -217,6 +225,23 @@ no test runner. Everything ships as raw files loaded directly by Chrome.
   through; (3) `content.js` wraps the `buildHtmlResponse()` call in
   try/catch and falls back to a proper error message, as a general safety
   net for *any* future rendering exception, not just this one.
+- **Ad-blocker popup auto-close (`autoCloseAdBlockerPopup` setting, default
+  on).** Unrelated to the CoinGecko widget — a separate, independent
+  feature in `content.js`. TradingView's "Ad blocker detected" upgrade nag
+  renders into a shared portal (`#overlap-manager-root`) as
+  `[data-dialog-name="gopro"]`, the same container/attribute TradingView
+  reuses for other unrelated "upgrade to Pro" prompts, so
+  `isAdBlockerDialogText()` (`utils.js`) checks the dialog's own text for
+  "ad blocker" before `setupAdBlockerPopupAutoClose()` touches anything —
+  confirmed live that a non-matching `gopro` dialog is left alone. Clicks
+  TradingView's own `[data-qa-id="promo-dialog-close-button"]` (confirmed
+  against the live dialog — not a hardcoded hashed class) rather than
+  hiding/removing the element directly, so their own dismiss/cleanup logic
+  runs and nothing (e.g. a scroll-lock body class) gets left stuck behind.
+  A `MutationObserver` on `document.body` keeps re-checking for the whole
+  page session, since the nag can reappear. Like `enabled`, this setting is
+  only read once on page load — toggling it in the popup needs a refresh to
+  take effect in an already-open tab.
 - **No auto-refresh/polling.** Data only refreshes on symbol change (the
   existing `MutationObserver` behavior), never on a timer — CoinGecko's
   free tier rate-limits aggressively, and this extension deliberately stays

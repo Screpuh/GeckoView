@@ -4,6 +4,10 @@
 
 const GV_DEFAULT_SETTINGS = {
     enabled: true,
+    // Auto-dismisses TradingView's own "Ad blocker detected" upgrade-nag dialog as soon as it
+    // appears (see content.js's setupAdBlockerPopupAutoClose). Unrelated to the widget above -
+    // kept as its own setting so it can be used independently of `enabled`.
+    autoCloseAdBlockerPopup: true,
     // Optional CoinGecko API key (from https://www.coingecko.com/en/developers/dashboard). Demo
     // (free) and Pro (paid) keys use different hosts and header names - see
     // https://docs.coingecko.com/reference/authentication (Pro) vs

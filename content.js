@@ -20,6 +20,12 @@ window.onload = function() {
     getGeckoViewSettings().then(settings => {
         geckoViewSettings = settings;
 
+        // Independent of the widget's own enabled/disabled state below - a user might want this
+        // even with the widget turned off, or vice versa.
+        if (settings.autoCloseAdBlockerPopup) {
+            setupAdBlockerPopupAutoClose();
+        }
+
         // The master on/off toggle only takes effect on page load (toggling it in the popup while
         // this tab is open needs a refresh) - unlike the per-stat toggles below, which apply live.
         if (!settings.enabled) {
@@ -89,6 +95,33 @@ window.onload = function() {
         updateCryptoContent();
     });
 };
+
+// Auto-dismisses TradingView's own "Ad blocker detected" upgrade-nag dialog the moment it
+// appears. TradingView renders it (and other unrelated upgrade prompts) into a shared portal
+// container (#overlap-manager-root) as data-dialog-name="gopro" - that attribute alone isn't
+// specific enough, so isAdBlockerDialogText() (utils.js) checks the dialog's own text before this
+// touches anything, leaving other "upgrade to Pro" prompts the user might actually want alone.
+// Confirmed against the live dialog: [data-qa-id="promo-dialog-close-button"] is TradingView's own
+// close button, so clicking it runs their own dismiss/cleanup logic rather than us just hiding or
+// removing the element (which could leave e.g. a scroll-lock body class stuck behind).
+function setupAdBlockerPopupAutoClose() {
+    function tryCloseAdBlockerDialog() {
+        const dialog = document.querySelector('[data-dialog-name="gopro"]');
+        if (!dialog || !isAdBlockerDialogText(dialog.textContent)) {
+            return;
+        }
+
+        const closeButton = dialog.querySelector('[data-qa-id="promo-dialog-close-button"]');
+        if (closeButton) {
+            closeButton.click();
+        }
+    }
+
+    const observer = new MutationObserver(tryCloseAdBlockerDialog);
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    tryCloseAdBlockerDialog(); // in case it's already open by the time this runs
+}
 
 // Chrome tears down a content script's connection to the extension when the extension is
 // reloaded/updated/removed while the page is still open ("Extension context invalidated").

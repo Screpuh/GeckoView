@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { calculatePercentageOfTotal, formatCirculatingPercentage, escapeHtml, displayPrice, formatDateOrEmpty } = require('../utils.js');
+const { calculatePercentageOfTotal, formatCirculatingPercentage, escapeHtml, displayPrice, formatDateOrEmpty, isAdBlockerDialogText } = require('../utils.js');
 
 test('calculatePercentageOfTotal computes a floored percentage', () => {
     assert.equal(calculatePercentageOfTotal(19000000, 21000000), 90);
@@ -63,4 +63,17 @@ test('formatDateOrEmpty returns empty string for a missing/empty/invalid value',
     assert.equal(formatDateOrEmpty(undefined), '');
     assert.equal(formatDateOrEmpty(''), '');
     assert.equal(formatDateOrEmpty('not-a-date'), '');
+});
+
+test('isAdBlockerDialogText matches regardless of case/surrounding text', () => {
+    assert.equal(isAdBlockerDialogText('Ad blocker detected'), true);
+    assert.equal(isAdBlockerDialogText('AD BLOCKER DETECTED'), true);
+    assert.equal(isAdBlockerDialogText('You seem to have an ad blocker enabled, please disable it.'), true);
+});
+
+test('isAdBlockerDialogText does not match an unrelated "upgrade to Pro" dialog', () => {
+    assert.equal(isAdBlockerDialogText('Unlock advanced charting tools with Pro'), false);
+    assert.equal(isAdBlockerDialogText(''), false);
+    assert.equal(isAdBlockerDialogText(null), false);
+    assert.equal(isAdBlockerDialogText(undefined), false);
 });

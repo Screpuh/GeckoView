@@ -3,6 +3,7 @@
 
 document.addEventListener('DOMContentLoaded', () => {
     const enabledCheckbox = document.getElementById('gv-enabled');
+    const autoCloseAdBlockCheckbox = document.getElementById('gv-auto-close-adblock');
     const statOptionsContainer = document.getElementById('gv-stat-options');
     const apiKeyInput = document.getElementById('gv-api-key');
     const apiKeyTypeSelect = document.getElementById('gv-api-key-type');
@@ -15,6 +16,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     enabledCheckbox.addEventListener('change', () => {
         setGeckoViewSetting('enabled', enabledCheckbox.checked);
+    });
+
+    autoCloseAdBlockCheckbox.addEventListener('change', () => {
+        setGeckoViewSetting('autoCloseAdBlockerPopup', autoCloseAdBlockCheckbox.checked);
     });
 
     // "change" (not "input") fires once the field loses focus after being edited, which is
@@ -53,6 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     getGeckoViewSettings().then(settings => {
         enabledCheckbox.checked = settings.enabled;
+        autoCloseAdBlockCheckbox.checked = settings.autoCloseAdBlockerPopup;
         apiKeyInput.value = settings.apiKey;
         apiKeyTypeSelect.value = settings.apiKeyType;
         GV_STAT_OPTIONS.forEach(option => {

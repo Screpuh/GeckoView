@@ -69,7 +69,16 @@ function formatDateOrEmpty(isoString) {
     return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+// The matching rule for content.js's TradingView ad-blocker-popup auto-closer, pulled out as its
+// own pure function so it's unit-testable without a DOM. TradingView reuses the same "gopro"
+// dialog container for several different upgrade prompts (data-dialog-name="gopro" alone isn't
+// specific enough), so this checks the dialog's own text for "ad blocker" before content.js is
+// allowed to auto-dismiss it - a generic "upgrade to Pro" prompt the user might want to see stays put.
+function isAdBlockerDialogText(text) {
+    return /ad blocker/i.test(text || '');
+}
+
 // Expose for the Node test runner (no-op in the browser extension context, where `module` is undefined).
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { sleep, calculatePercentageOfTotal, formatCirculatingPercentage, escapeHtml, displayPrice, formatDateOrEmpty };
+    module.exports = { sleep, calculatePercentageOfTotal, formatCirculatingPercentage, escapeHtml, displayPrice, formatDateOrEmpty, isAdBlockerDialogText };
 }
