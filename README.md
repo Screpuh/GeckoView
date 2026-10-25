@@ -4,7 +4,7 @@
 
 Welcome to **GeckoView**! GeckoView is a Chrome extension designed to seamlessly integrate essential cryptocurrency data from CoinGecko into your TradingView charts. This tool is indispensable for traders who need quick access to vital market statistics without leaving their TradingView interface.
 
-![alt text](https://lh3.googleusercontent.com/JQaaP-p68Zs8KbhB-_wywJxBrDi_R_-DOCo0bhds-BjekxTiyFtG7Wb7s3vZax9f-PgEtYaMHnACg2efKSyghdwrRio=s1280-w1280-h800)
+![GeckoView showing CoinGecko market data inside a TradingView chart](store-assets/01-hero-light.png)
 
 ## Features
 
